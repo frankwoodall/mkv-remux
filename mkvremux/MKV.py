@@ -1,5 +1,6 @@
 #! python3
 
+import os
 import json
 from pathlib import Path
 from pprint import pprint
@@ -16,8 +17,11 @@ class MKV:
 
     def __init__(self, _path, __stage):
         """ Constructor for MKV """
+        self._allowed_types = [str, bytes, os.PathLike]
 
-        # Sometimes, we'll get a string instead of a Path object
+        if type(_path) not in self._allowed_types:
+            raise TypeError('Expecting str, bytes, or os.PathLike, not {}'.format(type(_path)))
+
         if not isinstance(_path, Path):
             _path = Path(_path)
             if not _path.exists():
@@ -212,21 +216,22 @@ class MKV:
             self.audio.copy_count = 1
 
         def choose_subs():
-            """ Choose the preferred video stream from the extracted streams """
-            print('subs.stream_count: ' + str(self.subs.stream_count))
+            """ Choose the preffered subtitles stream from the extracted streams
+
+                Preffered subtitles are in English and forced.
+
+                :raises RunTimeError if more than 1 forced English subtitles found
+            """
             if self.subs.stream_count > 0:
                 # Filter out all non-eng subs
                 eng_subs = [_ for _ in self.subs.streams if _.get('tags').get('language').lower() in ['eng', 'english']]
 
-                print('Eng subs found: ' + str(len(eng_subs)))
-
-                # We only want forced subs
                 for subs in eng_subs:
                     if subs.get('disposition').get('forced') == 1:
-                        # Add to the copy stream list
-                        self.subs.copy_streams.append(subs)
+                        if self.subs.copy_count > 0:
+                            raise RuntimeError('Multiple forced English subtitles found')
 
-                        # update indices and count
+                        self.subs.copy_streams.append(subs)
                         self.subs.copy_indices.append(subs.get('index'))
                         self.subs.copy_count += 1
 
