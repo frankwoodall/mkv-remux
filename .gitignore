@@ -2,7 +2,6 @@
 ### Python template
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
 *$py.class
 
 # C extensions
@@ -21,6 +20,7 @@ lib64/
 parts/
 sdist/
 var/
+local/
 wheels/
 *.egg-info/
 .installed.cfg
@@ -155,3 +155,8 @@ com_crashlytics_export_strings.xml
 crashlytics.properties
 crashlytics-build.properties
 fabric.properties
+
+# Ignore my todo list and local files
+local
+local/*
+TODO
