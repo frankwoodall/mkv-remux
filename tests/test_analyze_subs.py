@@ -126,7 +126,7 @@ class TestOne:
 
 
 class TestTwo:
-    """ Tests for MKVs with """
+    """ Tests for MKVs with two subtitle streams """
 
     def test_engeng(self):
         """ The MKV used in this test class has two subtitle stream:

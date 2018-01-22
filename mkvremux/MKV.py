@@ -2,8 +2,9 @@
 
 import os
 import json
-from pathlib import Path
+import pathlib
 from pprint import pprint
+from typing import Union
 from subprocess import run, PIPE, DEVNULL
 from mkvremux.Location import Location
 from mkvremux.MKVStream import MKVStream
@@ -15,15 +16,15 @@ __project__ = 'mkvremux'
 class MKV:
     """ A representation of the MKV container"""
 
-    def __init__(self, _path, __stage):
+    def __init__(self, _path: Union[str, bytes, os.PathLike, pathlib.Path], __stage: int):
         """ Constructor for MKV """
         self._allowed_types = [str, bytes, os.PathLike]
 
         if type(_path) not in self._allowed_types:
             raise TypeError('Expecting str, bytes, or os.PathLike, not {}'.format(type(_path)))
 
-        if not isinstance(_path, Path):
-            _path = Path(_path)
+        if not isinstance(_path, pathlib.Path):
+            _path = pathlib.Path(_path)
             if not _path.exists():
                 raise FileNotFoundError('Specified MKV does not exist')
 
@@ -131,7 +132,7 @@ class MKV:
                 # If we _still_ have multiple video streams
                 if len(non_image_streams) != 1:
                     # Need to handle this file manually. Bail
-                    raise RuntimeError('Multiple video streams detected. Stopping processing')
+                    raise RuntimeError('Multiple video streams detected')
                 else:
                     # Otherwise, let's use the non-image stream we found
                     self.video.copy_streams = non_image_streams

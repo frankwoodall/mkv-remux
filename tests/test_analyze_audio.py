@@ -1,85 +1,114 @@
-from unittest import TestCase
-from unittest.mock import patch
 from mkvremux import MKV
 from tests.env import test_paths
 
-class TestAnalysisAudioOneStream(TestCase):
-    """ Test Audio Stream portion of MKV Analysis
 
-        The MKV used in this test class has a single audio stream:
-            0:1 -> Audio Stream
+class TestOne:
+    """ Tests for MKVs with a single audio stream """
 
-        Expected behavior:
-            - Correct stream identified
-            - Correct index extracted
-            - Correct copy_count
-    """
+    def test_one(self):
+        """ The MKV used in this test has a single audio stream:
+            Stream #0:1(eng): Audio: dts (DTS-HD MA), 48000 Hz, 5.1(side), s32p (24 bit) (default)
+            Metadata:
+              title           : DTS-HD MA 5.1
+              BPS             : 3411810
+              BPS-eng         : 3411810
+              DURATION-eng    : 01:55:49.910000000
+              NUMBER_OF_FRAMES: 651554
+              NUMBER_OF_FRAMES-eng: 651554
+              NUMBER_OF_BYTES : 2963972172
+              NUMBER_OF_BYTES-eng: 2963972172
+              _STATISTICS_WRITING_APP: mkvmerge v8.0.0 ('Til The Day That I Die') 64bit
+              _STATISTICS_WRITING_APP-eng: mkvmerge v8.0.0 ('Til The Day That I Die') 64bit
+              _STATISTICS_WRITING_DATE_UTC: 2015-09-25 12:17:01
+              _STATISTICS_WRITING_DATE_UTC-eng: 2015-09-25 12:17:01
+              _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+              _STATISTICS_TAGS-eng: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+              DURATION        : 00:00:01.428000000
 
-    @classmethod
-    def setUpClass(cls):
-        cls.mkv = MKV(test_paths['default'], 0)
-        cls.mkv.analyze()
+            Expected behavior:
+                - Audio stream will be identified
+                - Audio stream will be selected for copying
 
-    def test_copy_count(self):
-        """ Is the number of streams to copy correct? """
-        self.assertEqual(self.mkv.audio.copy_count, 1)
+            Expected values:
+                - stream_count  -> 1
+                - copy_count    -> 1
+                - copy_indices  -> [1]
+                - copy_streams[0]['tags']['title'] == 'DTS-HD MA 5.1'
+        """
 
-    def test_copy_indices(self):
-        """ Were the correct indices extracted? """
-        self.assertEqual(self.mkv.audio.copy_indices, [1])
+        mkv = MKV(test_paths['default'], 0)
+        mkv.analyze()
+        assert mkv.audio.stream_count == 1
+        assert mkv.audio.copy_count == 1
+        assert mkv.audio.copy_indices == [1]
+        assert mkv.audio.copy_streams[0]['tags']['title'] == 'DTS-HD MA 5.1'
 
-    def test_copy_streams(self):
-        """ Was the correct stream identified? """
-        self.assertEqual(self.mkv.audio.copy_streams[0]['tags']['title'], 'DTS-HD MA 5.1')
+
+class TestMult:
+    """ Tests for MKVs with multiple audio streams """
+
+    def test_two_pick_1(self, monkeypatch):
+        """ The MKV used in this test has two audio streams:
+            Stream #0:1(eng): Audio: dts, 48000 Hz, 8 channels (default)
+            Metadata:
+              title           : DTS-HD MA 7.1
+              DURATION        : 00:00:00.000000000
+            Stream #0:2(eng): Audio: dts, 48000 Hz, 6 channels (default)
+            Metadata:
+              title           : DTS-HD MA 5.1
+              DURATION        : 00:00:00.000000000
+
+            Expected behavior:
+                - Multiple audio streams will be identified
+                - User will be prompted for selection
+                    - User enters "1"
+
+            Expected values:
+                - stream_count  -> 2
+                - copy_count    -> 1
+                - copy_indices  -> [1]
+                - copy_streams[0]['tags']['title'] == 'DTS-HD MA 7.1'
+        """
+        # Patch the builtin input function to return '1'
+        monkeypatch.setattr('builtins.input', lambda input_prompt: '1')
+        mkv = MKV(test_paths['audio']['two'], 0)
+        mkv.analyze()
+        assert mkv.audio.stream_count == 2
+        assert mkv.audio.copy_count == 1
+        assert mkv.audio.copy_indices == [1]
+        assert mkv.audio.copy_streams[0]['tags']['title'] == 'DTS-HD MA 7.1'
+
+    def test_two_pick_2(self, monkeypatch):
+        """ The MKV used in this test has two audio streams:
+            Stream #0:1(eng): Audio: dts, 48000 Hz, 8 channels (default)
+            Metadata:
+              title           : DTS-HD MA 7.1
+              DURATION        : 00:00:00.000000000
+            Stream #0:2(eng): Audio: dts, 48000 Hz, 6 channels (default)
+            Metadata:
+              title           : DTS-HD MA 5.1
+              DURATION        : 00:00:00.000000000
+
+            Expected behavior:
+                - Multiple audio streams will be identified
+                - User will be prompted for selection
+                    - User enters "2"
+
+            Expected values:
+                - stream_count  -> 2
+                - copy_count    -> 1
+                - copy_indices  -> [2]
+                - copy_streams[0]['tags']['title'] == 'DTS-HD MA 5.1'
+        """
+        # Patch the builtin input function to return '2'
+        monkeypatch.setattr('builtins.input', lambda input_prompt: '2')
+        mkv = MKV(test_paths['audio']['two'], 0)
+        mkv.analyze()
+        assert mkv.audio.stream_count == 2
+        assert mkv.audio.copy_count == 1
+        assert mkv.audio.copy_indices == [2]
+        assert mkv.audio.copy_streams[0]['tags']['title'] == 'DTS-HD MA 5.1'
 
 
-class TestAnalysisAudioMultStreams(TestCase):
-    """ Test Audio Stream portion of MKV Analysis
 
-        The MKV used in this test class has a two audio streams:
-            0:1 -> Audio Stream (DTS-HD MA 7.1)
-            0:2 -> Audio Stream (DTS-HD MA 5.1)
-    """
-
-    def test_good_input_1_copy_count(self):
-        user_input = '1'
-        mkv = MKV(test_paths['Audio']['mult_audio'], 0)
-        with patch('builtins.input', side_effect=user_input):
-            mkv.analyze()
-        self.assertEqual(mkv.audio.copy_count, 1)
-
-    def test_good_input_1_copy_indices(self):
-        user_input = '1'
-        mkv = MKV(test_paths['Audio']['mult_audio'], 0)
-        with patch('builtins.input', side_effect=user_input):
-            mkv.analyze()
-        self.assertEqual(mkv.audio.copy_indices, [1])
-
-    def test_good_input_1_copy_streams(self):
-        user_input = '1'
-        mkv = MKV(test_paths['Audio']['mult_audio'], 0)
-        with patch('builtins.input', side_effect=user_input):
-            mkv.analyze()
-        self.assertEqual(mkv.audio.copy_streams[0]['tags']['title'], 'DTS-HD MA 7.1')
-
-    def test_good_input_2_copy_count(self):
-        user_input = '2'
-        mkv = MKV(test_paths['Audio']['mult_audio'], 0)
-        with patch('builtins.input', side_effect=user_input):
-            mkv.analyze()
-        self.assertEqual(mkv.audio.copy_count, 1)
-
-    def test_good_input_2_copy_indices(self):
-        user_input = '2'
-        mkv = MKV(test_paths['Audio']['mult_audio'], 0)
-        with patch('builtins.input', side_effect=user_input):
-            mkv.analyze()
-        self.assertEqual(mkv.audio.copy_indices, [2])
-
-    def test_good_input_2_copy_streams(self):
-        user_input = '2'
-        mkv = MKV(test_paths['Audio']['mult_audio'], 0)
-        with patch('builtins.input', side_effect=user_input):
-            mkv.analyze()
-        self.assertEqual(mkv.audio.copy_streams[0]['tags']['title'], 'DTS-HD MA 5.1')
 

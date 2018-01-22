@@ -1,57 +1,59 @@
-from unittest import TestCase
+import pytest
 from pathlib import Path
 from mkvremux import MKV
+from mkvremux.Location import Location
 from tests.env import test_paths
 
 
-class TestLocation(TestCase):
-    """ Make sure that the location is getting populated correctly
-        Stage specific location stuff is tested elsewhere."""
+class TestCreation:
+    """ Test that Location objected is created and initialized correctly """
 
-    @classmethod
-    def setUpClass(cls):
-        cls.mkv = MKV(test_paths.get('default'), 0)
+    def test_attributes(self):
+        """ Are all of the instance attributes initialized correctly?
 
-    def test_orig_path(self):
-        """ Is the original path set correctly? """
-        should_be = Path('tests\mkvs\Default Test Clip.mkv')
-        self.assertTrue(self.mkv.location.orig_path.samefile(should_be))
+            Expected behavior:
+                - Location object created successfully
 
-    def test_orig_fname(self):
-        """ Is the original filename set correctly? """
-        should_be = 'Default Test Clip.mkv'
-        self.assertEqual(self.mkv.location.orig_fname, should_be)
+            Expected values:
+                - orig_path     -> Points to test_paths['default']
+                - orig_fname    -> 'Default Test.mkv'
+                - orig_name     -> 'Default Test'
+                - ext           -> '.mkv'
+                - cur_dir       -> Points to test_paths['default']
+                - cur_fname     -> 'Default Test'
+        """
+        mkv = MKV(test_paths['default'], 0)
+        loc = mkv.location
 
-    def test_orig_name(self):
-        """ Is the original name set correctly? """
-        should_be = 'Default Test Clip'
-        self.assertEqual(self.mkv.location.orig_name, should_be)
-
-    def test_ext(self):
-        """ Is the extension set correctly? """
-        should_be = '.mkv'
-        self.assertEqual(self.mkv.location.ext, should_be)
-
-    def test_cur_dir(self):
-        """ Is the current path set correctly? """
-        should_be = Path('tests\mkvs')
-        self.assertTrue(self.mkv.location.cur_dir.samefile(should_be))
-
-    def test_cur_fname(self):
-        """ Is the current filename set correctly? """
-        should_be = 'Default Test Clip.mkv'
-        self.assertEqual(self.mkv.location.cur_fname, should_be)
+        assert loc.orig_path.samefile(Path(test_paths['default']))
+        assert loc.orig_fname == 'Default Test.mkv'
+        assert loc.orig_name == 'Default Test'
+        assert loc.ext == '.mkv'
+        assert loc.cur_dir.samefile(Path(test_paths['default']).parent)
+        assert loc.cur_fname == 'Default Test.mkv'
 
 
-class TestLocStage1(TestCase):
-    """ Make sure that the location is getting populated correctly
-        Stage specific location stuff is tested elsewhere."""
+class TestWrongTypes:
+    """ Test that we fail appropriately when the wrong types are given to the constructor """
 
-    def setUp(self):
-        self.mkv = MKV(test_paths.get('default'), 1)
+    def test_path(self):
+        """ Do we fail if path is the wrong type?
 
-    def test_next_path(self):
-        """ Does the next path get set correctly for stage 0? """
-        should_be = Path(r'tests\2_needs_mux')
-        self.assertTrue(self.mkv.location.next_path.samefile(should_be))
+            Expected behavior:
+                - TypeError
+                    - _path must be a pathlib.Path
+        """
+        with pytest.raises(TypeError) as exc:
+            Location('Not a pathlib.path', 0)
+        assert 'path must be pathlib.Path' in str(exc.value)
 
+    def test_stage(self):
+        """ Do we fail if stage is the wrong type?
+
+            Expected behavior:
+                - TypeError
+                    - __stage must be an int
+        """
+        with pytest.raises(TypeError) as exc:
+            Location(Path('.'), 'Not an int')
+        assert 'stage must be an int' in str(exc.value)
