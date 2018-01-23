@@ -1,5 +1,5 @@
 import pytest
-from mkvremux.MKVStream import MKVStream
+from mkvremux.mkvstream import MKVStream
 from tests.env import test_streams
 
 

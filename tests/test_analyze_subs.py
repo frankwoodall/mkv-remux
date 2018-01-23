@@ -20,7 +20,7 @@ class TestZero:
                 - copy_streams  -> []
         """
         mkv = MKV(test_paths['subs']['zero'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 0
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -48,7 +48,7 @@ class TestOne:
                 - copy_streams  -> []
         """
         mkv = MKV(test_paths['subs']['one-eng'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 1
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -71,7 +71,7 @@ class TestOne:
                 - copy_streams  -> []
         """
         mkv = MKV(test_paths['subs']['one-dut'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 1
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -94,7 +94,7 @@ class TestOne:
                 - copy_streams  -> []
         """
         mkv = MKV(test_paths['subs']['one-dutf'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 1
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -118,7 +118,7 @@ class TestOne:
                 - copy_streams[0]['tags']['title'] -> English Forced
         """
         mkv = MKV(test_paths['subs']['one-engf'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 1
         assert mkv.subs.copy_count == 1
         assert mkv.subs.copy_indices == [2]
@@ -150,7 +150,7 @@ class TestTwo:
                 - copy_streams -> []
         """
         mkv = MKV(test_paths['subs']['two-engeng'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 2
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -178,7 +178,7 @@ class TestTwo:
                 - copy_streams -> []
         """
         mkv = MKV(test_paths['subs']['two-engdut'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 2
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -206,7 +206,7 @@ class TestTwo:
                 - copy_streams -> []
         """
         mkv = MKV(test_paths['subs']['two-dutdut'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 2
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -234,7 +234,7 @@ class TestTwo:
                 - copy_streams -> []
         """
         mkv = MKV(test_paths['subs']['two-engdutf'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 2
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -262,7 +262,7 @@ class TestTwo:
                 - copy_streams[0]['tags']['title'] -> English Forced
         """
         mkv = MKV(test_paths['subs']['two-engfdut'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 2
         assert mkv.subs.copy_count == 1
         assert mkv.subs.copy_indices == [2]
@@ -290,7 +290,7 @@ class TestTwo:
                 - copy_streams[0]['tags']['title'] -> English Forced
         """
         mkv = MKV(test_paths['subs']['two-engfeng'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 2
         assert mkv.subs.copy_count == 1
         assert mkv.subs.copy_indices == [2]
@@ -318,7 +318,7 @@ class TestTwo:
                 - copy_streams[0]['tags']['title'] -> English Forced
         """
         mkv = MKV(test_paths['subs']['two-engengf'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 2
         assert mkv.subs.copy_count == 1
         assert mkv.subs.copy_indices == [3]
@@ -354,7 +354,7 @@ class TestThree:
                 - copy_streams  -> []
         """
         mkv = MKV(test_paths['subs']['three-engengeng'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 3
         assert mkv.subs.copy_count == 0
         assert mkv.subs.copy_indices == []
@@ -386,7 +386,7 @@ class TestThree:
                 - copy_streams[0]['tags']['title'] -> English Forced
         """
         mkv = MKV(test_paths['subs']['three-dutdutengf'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.subs.stream_count == 3
         assert mkv.subs.copy_count == 1
         assert mkv.subs.copy_indices == [4]
@@ -415,5 +415,5 @@ class TestThree:
         """
         mkv = MKV(test_paths['subs']['three-engfengengf'], 0)
         with pytest.raises(RuntimeError) as exc:
-            mkv.analyze()
+            mkv._analyze()
         assert str(exc.value) == 'Multiple forced English subtitles found'

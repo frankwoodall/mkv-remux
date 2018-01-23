@@ -37,7 +37,7 @@ class TestOne:
         """
 
         mkv = MKV(test_paths['default'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.audio.stream_count == 1
         assert mkv.audio.copy_count == 1
         assert mkv.audio.copy_indices == [1]
@@ -47,7 +47,7 @@ class TestOne:
 class TestMult:
     """ Tests for MKVs with multiple audio streams """
 
-    def test_two_pick_1(self, monkeypatch):
+    def test_two_pick_1(self):
         """ The MKV used in this test has two audio streams:
             Stream #0:1(eng): Audio: dts, 48000 Hz, 8 channels (default)
             Metadata:
@@ -69,46 +69,10 @@ class TestMult:
                 - copy_indices  -> [1]
                 - copy_streams[0]['tags']['title'] == 'DTS-HD MA 7.1'
         """
-        # Patch the builtin input function to return '1'
-        monkeypatch.setattr('builtins.input', lambda input_prompt: '1')
         mkv = MKV(test_paths['audio']['two'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.audio.stream_count == 2
-        assert mkv.audio.copy_count == 1
-        assert mkv.audio.copy_indices == [1]
-        assert mkv.audio.copy_streams[0]['tags']['title'] == 'DTS-HD MA 7.1'
-
-    def test_two_pick_2(self, monkeypatch):
-        """ The MKV used in this test has two audio streams:
-            Stream #0:1(eng): Audio: dts, 48000 Hz, 8 channels (default)
-            Metadata:
-              title           : DTS-HD MA 7.1
-              DURATION        : 00:00:00.000000000
-            Stream #0:2(eng): Audio: dts, 48000 Hz, 6 channels (default)
-            Metadata:
-              title           : DTS-HD MA 5.1
-              DURATION        : 00:00:00.000000000
-
-            Expected behavior:
-                - Multiple audio streams will be identified
-                - User will be prompted for selection
-                    - User enters "2"
-
-            Expected values:
-                - stream_count  -> 2
-                - copy_count    -> 1
-                - copy_indices  -> [2]
-                - copy_streams[0]['tags']['title'] == 'DTS-HD MA 5.1'
-        """
-        # Patch the builtin input function to return '2'
-        monkeypatch.setattr('builtins.input', lambda input_prompt: '2')
-        mkv = MKV(test_paths['audio']['two'], 0)
-        mkv.analyze()
-        assert mkv.audio.stream_count == 2
-        assert mkv.audio.copy_count == 1
-        assert mkv.audio.copy_indices == [2]
-        assert mkv.audio.copy_streams[0]['tags']['title'] == 'DTS-HD MA 5.1'
-
-
-
-
+        assert mkv.audio.copy_count == 0
+        assert mkv.audio.copy_indices == []
+        assert mkv.needs_user
+        assert mkv.audio.needs_user

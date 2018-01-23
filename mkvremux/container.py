@@ -1,13 +1,12 @@
-#! python3
-
 import os
 import json
 import pathlib
 from pprint import pprint
 from typing import Union
+from mkvremux.state import stages
 from subprocess import run, PIPE, DEVNULL
-from mkvremux.Location import Location
-from mkvremux.MKVStream import MKVStream
+from mkvremux.state import State
+from mkvremux.mkvstream import MKVStream
 
 __author__ = 'Frank Woodall'
 __project__ = 'mkvremux'
@@ -18,35 +17,43 @@ class MKV:
 
     def __init__(self, _path: Union[str, bytes, os.PathLike, pathlib.Path], __stage: int):
         """ Constructor for MKV """
-        self._allowed_types = [str, bytes, os.PathLike]
-
-        if type(_path) not in self._allowed_types:
-            raise TypeError('Expecting str, bytes, or os.PathLike, not {}'.format(type(_path)))
-
         if not isinstance(_path, pathlib.Path):
             _path = pathlib.Path(_path)
             if not _path.exists():
                 raise FileNotFoundError('Specified MKV does not exist')
 
         self._stage = __stage
-        self.location = Location(_path, __stage)
+        self.state = State(_path, __stage)
 
         # Hold the various streams
         self.audio = None
         self.video = None
         self.subs = None
 
-        # Stream titles
-        self.as_title = None
-        self.vs_title = None
-        self.g_title = None
+        # The media title
+        self._title = None
 
         # Helpers. Hold the command used to process and the output dir
-        self.cmd = None
-        self.out_dir = None
+        self.cmd_list = []
+
+        # Gets set to false if we fail hard somewhere
+        self.can_transition = True
+
+        # Gets set if we need user input for some reason. Try real hard to avoid.
+        self.needs_user = False
 
         # Metadata
         self.metadata = None
+
+    @property
+    def media_title(self):
+        return self._title
+
+    @media_title.setter
+    def media_title(self, new_title):
+        """ Make sure we update the state output files accordingly """
+        self._title = new_title
+        self.state.sanitized_name = new_title.replace(':', '')
 
     @property
     def stage(self):
@@ -56,7 +63,7 @@ class MKV:
     def stage(self, new_stage):
         """ Ensure we update the stage everywhere when we have a transition """
         self._stage = new_stage
-        self.location.stage = new_stage
+        self.state.stage = new_stage
 
     def __repr__(self):
         r_str = ''
@@ -64,7 +71,7 @@ class MKV:
         r_str += '\nmkv.stage ({}): {}'.format(type(self._stage).__name__, repr(self._stage))
         return r_str
 
-    def analyze(self):
+    def _analyze(self):
         """ When we have a downloaded file to process, we don't really know what's been done to it.
 
         The goal here is to extract the best video and audio tracks, as well as any forced English subs."""
@@ -72,7 +79,7 @@ class MKV:
         def extract_streams():
             """ Extract all the streams from the mkv """
 
-            f = str(self.location.cur_path)
+            f = str(self.state.cur_path)
 
             # Extract streams and associated metadata for video, audio, and subtitle streams
             cmd_v = ['ffprobe', '-show_streams', '-select_streams', 'v', '-print_format', 'json', f]
@@ -82,7 +89,7 @@ class MKV:
             commands = {
                 'Video': cmd_v,
                 'Audio': cmd_a,
-                'Subtitles': cmd_s
+                'Subtitles': cmd_s,
             }
 
             # Execute each command
@@ -90,7 +97,7 @@ class MKV:
                 ret = run(cmd, stdout=PIPE, stderr=DEVNULL)
 
                 if ret.returncode != 0:
-                    raise RuntimeError('Problem extracting {} streams'.format(kind))
+                    raise RuntimeError('Problem extracting stream: {}'.format(kind))
 
                 # Convert the stream data to something useful
                 s_data = json.loads(ret.stdout)
@@ -145,6 +152,11 @@ class MKV:
             # Set copy count. I can't think of a situation where this wouldn't be 1
             self.video.copy_count = 1
 
+            # Attempt to use existing stream title
+            self.video.title = self.video.copy_streams[0].get('title')
+            if self.video.title is None:
+                self.video.title = self.video.copy_streams[0].get('codec_name') + ' Remux'
+
         def choose_audio():
             """ Choose the preferred audio stream from the extracted streams """
 
@@ -155,66 +167,26 @@ class MKV:
 
             # Sanity Check
             if self.audio.stream_count == 0:
-                raise Exception('No audio streams found')
+                raise RuntimeError('No audio streams found')
             elif self.audio.stream_count > 1:
-                valid_indices = []      # We'll use this in a bit to validate user input
-                # No good way to guess. We need to prompt.
-                # First, print an overview of each audio stream.
-                # This is generally the information I'd use to decided which stream I want to copy
-                for stream in self.audio.streams:
-                    # I don't want non-English language audio
-                    if stream['tags']['language'] != 'eng':
-                        continue
-                    index = stream['index']
-                    valid_indices.append(str(index))    # Record the index numbers for later validation
-                    print('     [Stream #{}]'.format(str(index)))
-                    print('       [Name]: ' + str(stream.get('tags').get('title')))
-                    print('       [Codec]: ' + str(stream.get('codec_name')))
-                    print('       [Channels]: ' + str(stream.get('channels')))
-                    print('       [default]: ' + str(stream.get('disposition').get('default')))
-                    print('       [Tags] ')
+                # User needs to look at it
+                self.audio.needs_user = True
+                self.needs_user = True
 
-                    for key, val in stream['tags'].items():
-                        print('         [{}] {}'.format(key, val))
-                    print('\n\n')
+            if not self.audio.needs_user:
+                # At this point, we've isolated a single audio stream
+                index = self.audio.copy_streams[0].get('index')
+                self.audio.copy_indices.append(index)
 
-                # Now ask which one of those we want
-                choice = input('     [*] Enter number of desired stream or M for detailed stream info: ')
+                # Set copy count. Again, I can't currently think of when
+                # this would ever not be 1
+                self.audio.copy_count = 1
 
-                # Safety loop
-                while choice.lower() != 'm' and not choice.isdigit():
-                    print('       [*] Invalid choice! ')
-                    choice = input('     [*] Enter number of desired stream or M for detailed stream info: ')
-
-                # If they asked for more details
-                if choice.lower() == 'm':
-                    for stream in self.audio.streams:
-                        index = stream['index']
-                        print('     [Stream #{}]'.format(str(index)))
-                        pprint(stream)
-                        print('\n\n')
-
-                # Ensure the provided number is valid
-                valid_choice = True if choice in valid_indices else False
-                while not valid_choice:
-                    print('       [*] You entered {}. That stream number does not exist!'.format(choice))
-                    choice = input('     [*] Enter number of desired stream or M for detailed stream info: ')
-                    valid_choice = True if choice in valid_indices else False
-
-                # Add the stream to the copy_streams list
-                for stream in self.audio.streams:
-                    if str(stream['index']) == choice:
-                        # Overwrite the other audio stream
-                        self.audio.copy_streams = [stream]
-                        break
-
-            # At this point, we've isolated a single audio stream
-            index = self.audio.copy_streams[0].get('index')
-            self.audio.copy_indices.append(index)
-
-            # Set copy count. Again, I can't currently think of when
-            # this would ever not be 1
-            self.audio.copy_count = 1
+                # Attempt to set stream title
+                self.audio.title = self.audio.copy_streams[0]['tags'].get('title')
+                if self.audio.title is None:
+                    self.audio.title = self.audio.copy_streams[0].get('codec_name')
+                    self.audio.title += ' ' + self.audio.copy_streams[0].get('channel_layout')
 
         def choose_subs():
             """ Choose the preffered subtitles stream from the extracted streams
@@ -236,8 +208,29 @@ class MKV:
                         self.subs.copy_indices.append(subs.get('index'))
                         self.subs.copy_count += 1
 
+        def set_title():
+            """ Attempt to set output filename based on mkv global tag 'title'.
 
-        def choose_preferred_stream():
+            :raises RunTimeError: If the source mkv has no global title """
+
+            f = str(self.state.cur_path)
+            cmd = ['ffprobe', '-show_format', '-print_format', 'json', f]
+
+            ret = run(cmd, stdout=PIPE, stderr=DEVNULL)
+
+            if ret.returncode != 0:
+                raise RuntimeError('Problem Extracting Global Format Data')
+
+            format_data = json.loads(ret.stdout)
+            tags = format_data['format']['tags']
+
+            film_title = tags.get('title')
+            if film_title is not None:
+                self.media_title = film_title
+            else:
+                raise RuntimeError('MKV missing global title')
+
+        def choose_preferred_streams():
             """ Choose the appropriate streams to copy from the original mkv.
 
             MKV containers are generally organized into streams. There are three main stream types
@@ -264,5 +257,79 @@ class MKV:
             choose_audio()
             choose_subs()
 
+
         extract_streams()
-        choose_preferred_stream()
+        choose_preferred_streams()
+        set_title()
+
+    def _set_command(self):
+        """ Responsible for setting the command(s) needed to process the mkv
+            from it's current state into the next """
+
+        def cmd_stage_0():
+            """ Build the command for the stage_0 -> stage_1 transition """
+            out_file = self.state.out_dir.joinpath(self.state.sanitized_name + self.state.ext)
+
+            cmd_list = ['ffmpeg', '-hide_banner', '-i', '{}'.format(str(self.state.cur_path))]
+
+            # Copy the chosen video stream. Should only be one at stage 0
+            cmd_list += ['-map', '0:{}'.format(self.video.copy_indices[0])]
+
+            # Copy the chosen audio stream. Should only be one at stage 0
+            cmd_list += ['-map', '0:{}'.format(self.audio.copy_indices[0])]
+
+            # Copy the chose subtitles
+            if self.subs.copy_count > 0:
+                for count, index in enumerate(self.subs.copy_indices):
+                    cmd_list += ['-map', '0:{}'.format(index)]
+                    # And set title (we know they're English Forced)
+                    cmd_list += ['-metadata:s:s:{}'.format(count), '"title={}"'.format('English Forced')]
+
+            # Include global metadata
+            # TODO: Might want to add a cmd line option to NOT do this?
+            cmd_list += ['-map_metadata', '0']
+
+            # Set the global media title
+            cmd_list += ['-metadata', 'title={}'.format(self.media_title)]
+
+            # Set the stream titles
+            cmd_list += ['-metadata:s:v:0', 'title={}'.format(self.video.title)]
+            cmd_list += ['-metadata:s:a:0', 'title={}'.format(self.audio.title)]
+
+            # Copy without transcoding
+            cmd_list += ['-c', 'copy']
+
+            cmd_list += ['{}'.format(str(out_file))]
+
+            return cmd_list
+
+
+        def cmd_stage_1():
+            pass
+
+        def cmd_stage_2():
+            pass
+
+        if self.stage == stages.STAGE_0:
+            self.cmd_list.append(cmd_stage_0())
+
+    def pre_process(self):
+        if self.stage == stages.STAGE_0:
+            self._analyze()
+
+    def post_process(self):
+        pass
+
+    def run_commands(self):
+        """ Run the commands to transition to the next stage. """
+
+        self._set_command()
+        for cmd in self.cmd_list:
+            ret = run(cmd, stdout=PIPE, stderr=PIPE)
+
+            print('Here is ret')
+            print(ret)
+
+            if ret.returncode != 0:
+                raise RuntimeError('Issue executing commands for mkv', ret)
+

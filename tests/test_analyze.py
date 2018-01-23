@@ -1,5 +1,5 @@
 from mkvremux import MKV
-from mkvremux.MKVStream import MKVStream
+from mkvremux.mkvstream import MKVStream
 from tests.env import test_paths
 
 
@@ -34,7 +34,7 @@ class TestStreamExtraction:
                 - .subs.stream_count   -> 1
         """
         mkv = MKV(test_paths['default'], 0)
-        mkv.analyze()
+        mkv._analyze()
 
         assert isinstance(mkv.video, MKVStream)
         assert isinstance(mkv.audio, MKVStream)

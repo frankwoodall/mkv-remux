@@ -32,6 +32,8 @@ class MKVStream:
         self.metadata = None
         self.title = None
 
+        self.needs_user = False
+
     @property
     def streams(self):
         return self._streams

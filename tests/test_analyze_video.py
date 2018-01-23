@@ -39,7 +39,7 @@ class TestOne:
         """
 
         mkv = MKV(test_paths['default'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.video.stream_count == 1
         assert mkv.video.copy_count == 1
         assert mkv.video.copy_indices == [0]
@@ -69,7 +69,7 @@ class TestMultiple:
         """
         mkv = MKV(test_paths['video']['mult_real'], 0)
         with pytest.raises(RuntimeError) as exc:
-            mkv.analyze()
+            mkv._analyze()
         assert str(exc.value) == 'Multiple video streams detected'
 
     def test_fake(self):
@@ -116,7 +116,7 @@ class TestMultiple:
         """
 
         mkv = MKV(test_paths['video']['mult_fake'], 0)
-        mkv.analyze()
+        mkv._analyze()
         assert mkv.video.stream_count == 3
         assert mkv.video.copy_count == 1
         assert mkv.video.copy_indices == [0]
