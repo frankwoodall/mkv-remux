@@ -74,5 +74,5 @@ class TestMult:
         assert mkv.audio.stream_count == 2
         assert mkv.audio.copy_count == 0
         assert mkv.audio.copy_indices == []
-        assert mkv.needs_user
+        assert mkv.intervene
         assert mkv.audio.needs_user

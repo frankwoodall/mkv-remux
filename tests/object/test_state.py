@@ -1,6 +1,8 @@
-import pytest
-import shutil
 import pathlib
+import shutil
+
+import pytest
+
 from mkvremux import MKV
 from mkvremux.state import State
 from mkvremux.state import stages
@@ -128,8 +130,10 @@ class TestPaths:
                 - out_dir       -> 'tests/processing/2_mix'
         """
         mkv = mkv0
-        mkv.stage = 1
+        mkv.state.sanitized_name = 'Stage 0 Test Good'
+        mkv.stage = stages.STAGE_1
         state = mkv.state
+
         assert state.orig_path.as_posix() == 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
         assert state.orig_dir.as_posix() == 'tests/processing/0_analyze'
         assert state.cur_path.as_posix() == 'tests/processing/1_remux/Stage 0 Test Good.mkv'
@@ -150,6 +154,7 @@ class TestPaths:
                 - out_dir       -> 'tests/processing/3_review'
         """
         mkv = mkv1
+        mkv.state.sanitized_name = 'Stage 1 Test Good'
         mkv.stage = stages.STAGE_2
         state = mkv.state
         assert state.orig_path.as_posix() == 'tests/processing/1_remux/Stage 1 Test Good.mkv'

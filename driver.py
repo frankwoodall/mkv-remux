@@ -4,22 +4,6 @@ from mkvremux import utils
 from mkvremux.container import stages
 
 
-def user_handle(mkv):
-    """ Sometimes there are problems that aren't fatal but can't be decided deterministically. In that case
-    we need a user to look at whatever the issue is and deconflict.
-
-    I use a flag 'needs_user' in the MKV object to signify this. Each stream can be flagged individually so
-    we need to check them all.
-    """
-
-    if mkv.video.needs_user:
-        pass
-    if mkv.audio.needs_user:
-        select_audio(mkv)
-    if mkv.subs.needs_user:
-        pass
-
-
 def select_audio(mkv):
     """ Sometimes, there are multiple audio streams in an MKV and we can't deterministically pick one. Seeing
     as how different people might want to handle this differently, I just raise a RuntimeError that can
@@ -27,6 +11,8 @@ def select_audio(mkv):
 
     :param MKV mkv: The offending mkv object
     """
+
+    print('Somehow made it to select_audio')
 
     valid_indices = []  # We'll use this in a bit to validate user input
     # No good way to guess. We need to prompt.
@@ -98,7 +84,7 @@ def main_loop():
 
             1) pre-processing
                 - Gathers information about the container
-                - Prompt for any necessary user input
+                - Identify any issues that need user intervention
             2) command execution
                 - Builds out commands for next stage
                 - Executes any commands (i.e. ffmpeg, qaac)
@@ -124,26 +110,23 @@ def main_loop():
     #os.chdir('tests/processing')
 
     stage = stages.STAGE_0
-
+    mkv_list = utils.get_mkvs(stage)
     while stage < stages.STAGE_3:
-        if stage == 1:
-            import sys
-            sys.exit()
 
         print('Processing MKVs for Stage: ' + str(stage))
-        mkv_list = utils.get_mkvs(stage)
-
         print('Found MKVs: ' + str(len(mkv_list)))
 
+        # Pre-process all MKVs
         for mkv in mkv_list:
             print('  Pre-proc for MKV: ' + str(mkv.state.cur_path))
             try:
                 mkv.pre_process()
 
-                if mkv.needs_user:
-                    user_handle(mkv)
+                if mkv.intervene:
+                    mkv.intervention(None, select_audio, None)
 
             except RuntimeError as exc:
+                print('Got a runtimeerror in preproc')
 
                 # These are fatal
                 # TODO: This is gross
@@ -156,25 +139,36 @@ def main_loop():
                 elif 'No audio streams found' in str(exc):
                     mkv.can_transition = False
 
+        # Run commands to transition to next stage
         for mkv in mkv_list:
             print('  Cmd Exec for MKV: ' + str(mkv.state.cur_path))
             if mkv.can_transition:
                 try:
                     mkv.run_commands()
-                    mkv.stage += 1
                     print('  Cmd Exec: success!')
+                    mkv.post_process()
+                    print('  Post proc: success!')
+
                 except RuntimeError as exc:
+
                     if 'Problem Extracting Global Format Data' in str(exc):
                         # Probably a show stopper so skip this MKV
                         # TODO: Maybe somehow generate a log that this one failed?
+                        print('Could not extract global format data')
                         continue
                     elif 'MKV missing global title' in str(exc):
                         # TODO: Need to manually prompt for media title
-                        pass
+                        print('MKV has no global title')
+                    else:
+                        print('Got a runtimeerror in cmd exec')
+                        print(exc)
+
             else:
                 print('Stopping processing on this MKV due to earlier failure.')
 
-            stage += 1
+        # Remove the MKVs that can't transition
+        mkv_list = [x for x in mkv_list if x.can_transition]
+        stage += 1
 
 
 if __name__ == '__main__':

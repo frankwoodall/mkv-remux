@@ -1,0 +1,4 @@
+General layout of the testing directory:
+    functional:     Tests for individual functions (e.g does `set_command` behave in the way I expect?)
+    object:         Tests for objects (e.g. Is an object property working correctly?)
+    mkvs:           Contains the testing MKV containers broken down by test type

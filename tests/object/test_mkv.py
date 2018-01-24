@@ -1,9 +1,8 @@
 import pytest
-import shutil
-import pathlib
-from mkvremux import MKV
-from tests.env import test_paths
 
+from mkvremux import MKV
+from mkvremux.state import stages
+from tests.env import test_paths
 
 
 class TestMKVLoad:
@@ -13,40 +12,42 @@ class TestMKVLoad:
     def test_invalid_input(self):
         """ Do we handle invalid input? """
         with pytest.raises(TypeError) as exc:
-            MKV(69, 0)
+            MKV(69, stages.STAGE_0)
         assert "not int" in str(exc.value)
 
     def test_not_exists(self):
         """Do we raise an exception when given a path to a file that doesn't exist?"""
         with pytest.raises(FileNotFoundError) as exc:
-            MKV('foo.bar', 0)
+            MKV('foo.bar', stages.STAGE_0)
         assert str(exc.value) == 'Specified MKV does not exist'
 
     def test_load(self):
         """Can we load a generic mkv?"""
-        m = MKV(test_paths['default'], 0)
+        m = MKV(test_paths['default'], stages.STAGE_0)
         assert isinstance(m, MKV)
 
 
-class TestMKVStageProperty:
+class TestStageProperty:
     """ Ensure properties are being get/set properly """
 
     def test_stage_get(self):
         """ Does the stage getter return the correct value? """
-        mkv = MKV(test_paths['default'], 0)
+        mkv = MKV(test_paths['default'], stages.STAGE_0)
         assert mkv.stage == 0
 
     def test_stage_set(self):
         """ Does the stage setter work? """
-        mkv = MKV(test_paths['default'], 0)
-        mkv.stage = 1
+        mkv = MKV(test_paths['default'], stages.STAGE_0)
+        mkv.state.sanitized_name = 'Default Test'
+        mkv.stage = stages.STAGE_1
         assert mkv.stage == 1
 
     def test_stage_set_loc(self):
         """ Does the stage setter properly set location's stage? """
-        mkv = MKV(test_paths['default'], 0)
+        mkv = MKV(test_paths['default'], stages.STAGE_0)
+        mkv.state.sanitized_name = 'Default Test'
         assert mkv.state.stage == 0
-        mkv.stage = 1
+        mkv.stage = stages.STAGE_1
         assert mkv.state.stage == 1
 
 
@@ -55,14 +56,14 @@ class TestMediaTitleProperty:
 
     def test_set_title(self):
         """ Does the set_title function work for a known good value? """
-        mkv = MKV(test_paths['default'], 0)
+        mkv = MKV(test_paths['default'], stages.STAGE_0)
         mkv._analyze()
         assert mkv.media_title == 'Default Test'
         assert mkv.state.sanitized_name == 'Default Test'
 
     def test_colon_in_title(self):
         """ Do we appropriately sanitize colons from file names? """
-        mkv = MKV(test_paths['default'], 0)
+        mkv = MKV(test_paths['default'], stages.STAGE_0)
         mkv.media_title = 'Title 2: Revenge of the Colon'
         assert mkv.media_title == 'Title 2: Revenge of the Colon'
         assert mkv.state.sanitized_name == 'Title 2 Revenge of the Colon'

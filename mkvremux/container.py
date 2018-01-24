@@ -1,12 +1,15 @@
-import os
 import json
+import os
 import pathlib
-from pprint import pprint
-from typing import Union
-from mkvremux.state import stages
+import shutil
 from subprocess import run, PIPE, DEVNULL
-from mkvremux.state import State
+from typing import Union
+
+import regex
+
 from mkvremux.mkvstream import MKVStream
+from mkvremux.state import State
+from mkvremux.state import stages
 
 __author__ = 'Frank Woodall'
 __project__ = 'mkvremux'
@@ -34,13 +37,14 @@ class MKV:
         self._title = None
 
         # Helpers. Hold the command used to process and the output dir
+        # Multiple items in this list will be piped into each other
         self.cmd_list = []
 
         # Gets set to false if we fail hard somewhere
         self.can_transition = True
 
         # Gets set if we need user input for some reason. Try real hard to avoid.
-        self.needs_user = False
+        self.intervene = False
 
         # Metadata
         self.metadata = None
@@ -72,16 +76,22 @@ class MKV:
         return r_str
 
     def _analyze(self):
-        """ When we have a downloaded file to process, we don't really know what's been done to it.
+        """ This is the heavy lifter of the pre-process step of any given stage. The analyze function
+        has three main responsibilities:
 
-        The goal here is to extract the best video and audio tracks, as well as any forced English subs."""
+            1) Extract all stream information (Video, Audio, and Subtitle) as well as global information about
+                the container itself
+            2) Given the stream information, select the preferred tracks.
+            3) Attempt to determine titles for each chosen stream as well as the global media title.
+
+        Preferred stream selection methodology is explained in the appropriate functions below.
+        """
 
         def extract_streams():
-            """ Extract all the streams from the mkv """
+            """ Extract all Video, Audio, and Subtitle streams with ffprobe """
 
             f = str(self.state.cur_path)
-
-            # Extract streams and associated metadata for video, audio, and subtitle streams
+            print(f)
             cmd_v = ['ffprobe', '-show_streams', '-select_streams', 'v', '-print_format', 'json', f]
             cmd_a = ['ffprobe', '-show_streams', '-select_streams', 'a', '-print_format', 'json', f]
             cmd_s = ['ffprobe', '-show_streams', '-select_streams', 's', '-print_format', 'json', f]
@@ -92,29 +102,24 @@ class MKV:
                 'Subtitles': cmd_s,
             }
 
-            # Execute each command
             for kind, cmd in commands.items():
                 ret = run(cmd, stdout=PIPE, stderr=DEVNULL)
 
                 if ret.returncode != 0:
                     raise RuntimeError('Problem extracting stream: {}'.format(kind))
 
-                # Convert the stream data to something useful
                 s_data = json.loads(ret.stdout)
+                mkv_stream = MKVStream(kind)
+                mkv_stream.streams = s_data['streams']
 
-                # Create the object
-                streams = MKVStream(kind)
-                streams.streams = s_data['streams']
-
-                # And assign it
                 if kind == 'Video':
-                    self.video = streams
+                    self.video = mkv_stream
 
                 elif kind == 'Audio':
-                    self.audio = streams
+                    self.audio = mkv_stream
 
                 elif kind == 'Subtitles':
-                    self.subs = streams
+                    self.subs = mkv_stream
 
         def choose_video():
             """ Choose the preferred video stream from the extracted streams """
@@ -158,28 +163,32 @@ class MKV:
                 self.video.title = self.video.copy_streams[0].get('codec_name') + ' Remux'
 
         def choose_audio():
-            """ Choose the preferred audio stream from the extracted streams """
+            """ Choose the preferred audio stream from the extracted streams
 
-            # Golden path first
-            # Assume the first stream is the only (and therefore the preferred)
-            # This is meant to be a list of one element
+                Methodology:
+                Assume that the first stream is the only (and therefore the preferred) stream.
+
+                In the case of only a single audio stream, extract the relevant stream elements
+                and we're done.
+
+                In the case of no audio streams, RuntimeError.
+
+                Finally, if there are multiple streams, mark the stream for user intervention
+                and we'll have to prompt the user later.
+            """
+
             self.audio.copy_streams.append(self.audio.streams[0])
 
-            # Sanity Check
             if self.audio.stream_count == 0:
                 raise RuntimeError('No audio streams found')
+
             elif self.audio.stream_count > 1:
-                # User needs to look at it
                 self.audio.needs_user = True
-                self.needs_user = True
+                self.intervene = True
 
             if not self.audio.needs_user:
-                # At this point, we've isolated a single audio stream
                 index = self.audio.copy_streams[0].get('index')
                 self.audio.copy_indices.append(index)
-
-                # Set copy count. Again, I can't currently think of when
-                # this would ever not be 1
                 self.audio.copy_count = 1
 
                 # Attempt to set stream title
@@ -257,7 +266,6 @@ class MKV:
             choose_audio()
             choose_subs()
 
-
         extract_streams()
         choose_preferred_streams()
         set_title()
@@ -268,6 +276,7 @@ class MKV:
 
         def cmd_stage_0():
             """ Build the command for the stage_0 -> stage_1 transition """
+            commands = []
             out_file = self.state.out_dir.joinpath(self.state.sanitized_name + self.state.ext)
 
             cmd_list = ['ffmpeg', '-hide_banner', '-i', '{}'.format(str(self.state.cur_path))]
@@ -300,36 +309,234 @@ class MKV:
             cmd_list += ['-c', 'copy']
 
             cmd_list += ['{}'.format(str(out_file))]
+            commands.append(cmd_list)
 
-            return cmd_list
-
+            return commands
 
         def cmd_stage_1():
-            pass
+            """ Build the commands for the stage_1 -> stage_2 transition
+
+                1st command: Create a raw stereo mix
+                2nd command: AAC encode it """
+            commands = []
+            stereo_mix = '{}.m4a'.format(self.state.sanitized_name)
+            out_file = self.state.out_dir.joinpath(stereo_mix)
+
+            cmd_list = ['ffmpeg', '-hide_banner', '-i', '{}'.format(str(self.state.cur_path))]
+
+            # Extract the audio stream
+            cmd_list += ['-map', '0:a:0']
+
+            # Set the output type, codec, and number of channels
+            cmd_list += ['-f', 'wav', '-acodec', 'pcm_f32le', '-ac', '2']
+
+            # Set the filter
+            cmd_list += ['-af', 'pan=stereo:FL=FC+0.30*FL+0.30*BL:FR=FC+0.30*FR+0.30*BR']
+
+            # Output to stdout
+            cmd_list += ['-']
+            commands.append(cmd_list)
+
+            # And pipe to qaac
+            cmd_list = ['qaac64', '--verbose']
+
+            # qaac args
+            cmd_list += ['--tvbr', '127', '--quality', '2', '--rate', 'keep', '--ignorelength', '--no-delay']
+
+            # qaac read from stdin
+            cmd_list += ['-']
+
+            # And set output file
+            cmd_list += ['-o', str(out_file)]
+            commands.append(cmd_list)
+
+            return commands
 
         def cmd_stage_2():
-            pass
+            """ Build the commands for the stage_2 -> stage_3 transition
 
+                command: Mux in stereo mix and set all global and stream metadata """
+            commands = []
+            stereo_mix = self.state.assoc_files['stereo_mix']
+            out_name = '{} ({}).mkv'.format(self.metadata['title'], self.metadata['year'])
+            out_file = self.state.out_dir.joinpath(out_name)
+
+            cmd_list = ['ffmpeg', '-hide_banner', '-i', str(self.state.cur_path)]
+
+            # Second input of stereo mix
+            cmd_list += ['-i', str(stereo_mix)]
+
+            # Extract all streams from both inputs. Direct copy
+            cmd_list += ['-map', '0', '-map', '1', '-c', 'copy']
+
+            # Copy global metadata
+            cmd_list += ['-map_metadata', '0']
+
+            # Set new global metadata
+            cmd_list += ['-metadata', 'provenance={}'.format(self.metadata.get('prov'))]
+            cmd_list += ['-metadata', 'source={}'.format(self.metadata.get('source'))]
+            cmd_list += ['-metadata', 'description={}'.format(self.metadata.get('desc'))]
+            cmd_list += ['-metadata', 'rel_year={}'.format(self.metadata.get('year'))]
+            cmd_list += ['-metadata', 'imdb_id={}'.format(self.metadata.get('imdb_id'))]
+
+            # Set stream metadata for stereo mix
+            cmd_list += ['-metadata:s:a:1', 'language=eng']
+            cmd_list += ['-metadata:s:a:1', "title=Frank's Stereo Mix"]
+            cmd_list += [
+                '-metadata:s:a:1', 'encoder=qaac 2.63, CoreAudioToolbox 7.10.9.0, AAC-LC Encoder, TVBR q127, Quality 96'
+            ]
+
+            # Set stereo mix to _not_  be default audio
+            cmd_list += ['-disposition:a:1', 'none']
+
+            # And set the output file
+            cmd_list += [str(out_file)]
+
+            commands.append(cmd_list)
+            return commands
+
+        # Ensure no other commands are present
+        self.cmd_list = []
+
+        # TODO: This is kind of ugly
         if self.stage == stages.STAGE_0:
-            self.cmd_list.append(cmd_stage_0())
+            for cmd in cmd_stage_0():
+                print(cmd)
+                self.cmd_list.append(cmd)
+
+        elif self.stage == stages.STAGE_1:
+            for cmd in cmd_stage_1():
+                self.cmd_list.append(cmd)
+
+        elif self.stage == stages.STAGE_2:
+            for cmd in cmd_stage_2():
+                self.cmd_list.append(cmd)
+
+    def intervention(self, handle_video=None, handle_audio=None, handle_subs=None):
+
+        """ Sometimes there are problems that aren't fatal but can't be decided deterministically. In that case
+        we need a user to look at whatever the issue is and de-conflict. I use a flag 'intervene' in the MKV
+        object to signify this state.
+
+        I intentionally did not implement this de-confliction in the MKV class because people will want to handle
+        this case in many different ways. Offloading the handling like this isn't my preferred way of doing things
+        but allows everyone to get the behavior that they want.
+
+        All we know at this point is that the intervene flag is set but not which stream type needs help -- so we need
+        to check them all.
+
+        Note: Supplied function should have the following signature:
+            - funcname(mkv: MKV) -> bool
+
+            It should take an mkv object as it's only argument and return True on successful de-confliction
+            or False. A function which returns False will cause that MKV to be quarantined.
+
+        :param handle_video: A function to handle de-confliction of video streams
+        :param handle_audio: A function to handle de-confliction of audio streams
+        :param handle_subs: A function to handle de-confliction of subtitle streams
+        """
+
+        if self.video.needs_user:
+            if handle_video:
+                handle_video(self)
+                self.video.needs_user = False
+            else:
+                raise NotImplementedError
+
+        if self.audio.needs_user:
+            if handle_audio:
+                handle_audio(self)
+                self.audio.needs_user = False
+            else:
+                raise NotImplementedError
+
+        if self.subs.needs_user:
+            if handle_subs:
+                handle_subs(self)
+                self.subs.needs_user = False
+            else:
+                raise NotImplementedError
+
+        self.intervene = False
+
+    def _set_metadata(self):
+        r_template = '({}){{e<3}}'
+        r_str = r_template.format(self.media_title)
+
+        hit = False
+
+        # Load the data from json file
+        with open('resources\movie_details.json', 'r') as md:
+            movie_data = json.load(md)
+
+        # Attempt a perfect match first
+        for movie in movie_data['Movies']:
+            if self.media_title == movie['title']:
+                self.metadata = movie
+                hit = True
+                print('Perfect Name Match!')
+                from pprint import pprint
+                pprint(self.metadata)
+                break
+
+        # If that didn't work, attempt a fuzzy match
+        if not hit:
+            for movie in movie_data['Movies']:
+                # Do a fuzzy match
+                if regex.match(r_str, movie.get('title')):
+                    self.metadata = movie
+                    print('METADATA SET TO: ')
+                    from pprint import pprint
+                    pprint(self.metadata)
+                    break
+
+        # Sanity check
+        if self.metadata is None:
+            raise Exception('Movie missing from movie_details.json')
 
     def pre_process(self):
         if self.stage == stages.STAGE_0:
             self._analyze()
 
+        if self.stage == stages.STAGE_2:
+            self._set_metadata()
+
     def post_process(self):
-        pass
+        """ Update new filenames, etc. """
+
+        if self.stage == stages.STAGE_1:
+            # Need to move the file to the stage 2 directory
+            shutil.move(str(self.state.cur_path), '2_mix')
+
+            # And add the .m4a file to the associated files list
+            # TODO: Ugly hack. Need to do better than this.
+            self.state.assoc_files['stereo_mix'] = '2_mix/{}.m4a'.format(self.state.sanitized_name)
+
+        # Finally, complete the transition to the next stage
+        self.stage += 1
 
     def run_commands(self):
         """ Run the commands to transition to the next stage. """
 
         self._set_command()
-        for cmd in self.cmd_list:
-            ret = run(cmd, stdout=PIPE, stderr=PIPE)
 
-            print('Here is ret')
-            print(ret)
+        # Stage 1 is a two parter and handled a bit differently
+        if self.stage == stages.STAGE_1:
+            cmd_mix = self.cmd_list[0]
+            cmd_encode = self.cmd_list[1]
+
+            mix = run(cmd_mix, stdout=PIPE, stderr=PIPE)
+            if mix.returncode != 0:
+                raise RuntimeError('Issue creating stereo mix for mkv', mix)
+
+            encode = run(cmd_encode, input=mix.stdout, stderr=PIPE)
+            if encode.returncode != 0:
+                raise RuntimeError('Issue encoding stereo mix', encode)
+
+        # For all other stages, there's only a single command
+        else:
+            cmd = self.cmd_list[0]
+            ret = run(cmd, stdout=PIPE, stderr=PIPE)
 
             if ret.returncode != 0:
                 raise RuntimeError('Issue executing commands for mkv', ret)
-

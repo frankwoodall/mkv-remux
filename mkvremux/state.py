@@ -67,7 +67,7 @@ class State:
         # ################################
         # Not sure if I need these anymore
         self.next_fname = None
-        self.assoc_files = None
+        self.assoc_files = {}
 
     @property
     def cur_path(self):
@@ -103,15 +103,15 @@ class State:
 
         if new_stage == 1:
             # Update current path
-            self.cur_path = self._root.joinpath('1_remux', self.orig_fname)
+            self.cur_path = self._root.joinpath('1_remux', self.sanitized_name + self.ext)
             self.out_dir = self._root.joinpath('2_mix')
 
         elif new_stage == 2:
-            self.cur_path = self._root.joinpath('2_mix', self.orig_fname)
+            self.cur_path = self._root.joinpath('2_mix', self.sanitized_name + self.ext)
             self.out_dir = self._root.joinpath('3_review')
 
         elif new_stage == 3:
-            self.cur_path = self._root.joinpath('3_review', self.orig_fname)
+            self.cur_path = self._root.joinpath('3_review', self.sanitized_name + self.ext)
             self.out_dir = None
 
     def __repr__(self):
