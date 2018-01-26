@@ -81,6 +81,12 @@ test_paths = {
         'good': 'tests/mkvs/stage_1/Stage 1 Test Good.mkv'
     },
 
+    # ####################### STAGE 2 TEST CONTAINERS #####################
+    'stage_2': {
+        'good_mkv': 'tests/mkvs/stage_2/Stage 2 Test Good.mkv',
+        'good_m4a': 'tests/mkvs/stage_2/Stage 2 Test Good.m4a'
+    },
+
     # Container has 1 V, 1 A, 1 S, but the order is Subs, Audio, Video [SAV]
     'weird_order_SAV': 'tests/mkvs/Weird Stream Order 01.mkv',
 

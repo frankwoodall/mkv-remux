@@ -69,12 +69,6 @@ class MKV:
         self._stage = new_stage
         self.state.stage = new_stage
 
-    def __repr__(self):
-        r_str = ''
-        r_str += 'Comprehensive dump of mkv object'
-        r_str += '\nmkv.stage ({}): {}'.format(type(self._stage).__name__, repr(self._stage))
-        return r_str
-
     def _analyze(self):
         """ This is the heavy lifter of the pre-process step of any given stage. The analyze function
         has three main responsibilities:
@@ -91,7 +85,6 @@ class MKV:
             """ Extract all Video, Audio, and Subtitle streams with ffprobe """
 
             f = str(self.state.cur_path)
-            print(f)
             cmd_v = ['ffprobe', '-show_streams', '-select_streams', 'v', '-print_format', 'json', f]
             cmd_a = ['ffprobe', '-show_streams', '-select_streams', 'a', '-print_format', 'json', f]
             cmd_s = ['ffprobe', '-show_streams', '-select_streams', 's', '-print_format', 'json', f]
@@ -391,7 +384,6 @@ class MKV:
 
             # And set the output file
             cmd_list += [str(out_file)]
-
             commands.append(cmd_list)
             return commands
 
@@ -401,7 +393,6 @@ class MKV:
         # TODO: This is kind of ugly
         if self.stage == stages.STAGE_0:
             for cmd in cmd_stage_0():
-                print(cmd)
                 self.cmd_list.append(cmd)
 
         elif self.stage == stages.STAGE_1:
@@ -502,15 +493,38 @@ class MKV:
             self._set_metadata()
 
     def post_process(self):
-        """ Update new filenames, etc. """
+        """ The final step in a processing stage. Any miscellaneous cleanup that doesn't
+         really fit anywhere else happens here.
 
-        if self.stage == stages.STAGE_1:
+         Post-Processing should only happen for MKVs that successfully completed the
+         command execution step.
+        """
+
+        if self.stage == stages.STAGE_0:
+            # Move the orignal MKV into the archive
+            # TODO: Handle this better. SHouldn't be using _root
+            dst = self.state._root.joinpath('_archive')
+            self.state.cur_path.rename(dst.joinpath(self.state.cur_fname))
+
+        elif self.stage == stages.STAGE_1:
             # Need to move the file to the stage 2 directory
-            shutil.move(str(self.state.cur_path), '2_mix')
+            dst = self.state._root.joinpath('2_mix')
+            stereo_mix = self.state.cur_dir.joinpath(self.state.sanitized_name + '.m4a')
+            self.state.assoc_files['stereo_mix'] = stereo_mix
+            self.state.cur_path.rename(dst.joinpath(self.state.cur_fname))
+            stereo_mix.rename(dst.joinpath(stereo_mix.name))
 
-            # And add the .m4a file to the associated files list
-            # TODO: Ugly hack. Need to do better than this.
-            self.state.assoc_files['stereo_mix'] = '2_mix/{}.m4a'.format(self.state.sanitized_name)
+        elif self.stage == stages.STAGE_2:
+            self.state.assoc_files.pop('stereo_mix')
+
+            # Clean up artifacts
+            artifacts = [
+                self.state.cur_dir.joinpath(self.state.sanitized_name + '.mkv'),
+                self.state.cur_dir.joinpath(self.state.sanitized_name + '.m4a')
+            ]
+
+            for item in artifacts:
+                item.unlink()
 
         # Finally, complete the transition to the next stage
         self.stage += 1

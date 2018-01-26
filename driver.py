@@ -112,6 +112,7 @@ def main_loop():
     stage = stages.STAGE_0
     mkv_list = utils.get_mkvs(stage)
     while stage < stages.STAGE_3:
+        # TODO: Need to refactor a bit. Each process step should return true if successful and be checked
 
         print('Processing MKVs for Stage: ' + str(stage))
         print('Found MKVs: ' + str(len(mkv_list)))
@@ -138,6 +139,8 @@ def main_loop():
                     mkv.can_transition = False
                 elif 'No audio streams found' in str(exc):
                     mkv.can_transition = False
+
+        # TODO: Remove MKVs from list that can't continue processing
 
         # Run commands to transition to next stage
         for mkv in mkv_list:
