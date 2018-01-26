@@ -4,11 +4,45 @@ import shutil
 import pytest
 
 from mkvremux import MKV
-from mkvremux.state import State
-from mkvremux.state import stages
+from mkvremux.state import State, stages
 from tests.env import test_paths
 
 
+@pytest.fixture(scope='class')
+def clean_artifacts():
+    """ In case a previous test failed. Remove any artifacts """
+    paths = [
+        pathlib.Path('tests/processing/_archive'),
+        pathlib.Path('tests/processing/0_analyze'),
+        pathlib.Path('tests/processing/1_remux'),
+        pathlib.Path('tests/processing/2_mix'),
+        pathlib.Path('tests/processing/3_review')
+    ]
+
+    for p in paths:
+        for item in p.iterdir():
+            item.unlink()
+
+
+@pytest.fixture(scope='class')
+def create_environment():
+    """ Stage test files where they need to be """
+    shutil.copy(test_paths['default'], 'tests/processing/0_analyze')
+
+
+@pytest.yield_fixture(scope='class')
+def get_mkv(request):
+    """ Some sort of black magic fixture to provide an object to the entire test class """
+    mkv_path = 'tests/processing/0_analyze/Default Test.mkv'
+    mkv = MKV(mkv_path, stages.STAGE_0)
+
+    if request.cls is not None:
+        request.cls.mkv = mkv
+
+    yield mkv
+
+
+@pytest.mark.usefixtures('clean_artifacts', 'create_environment', 'get_mkv')
 class TestCreation:
     """ Test that Location objected is created and initialized correctly """
 
@@ -26,15 +60,17 @@ class TestCreation:
                 - cur_dir       -> Points to test_paths['default']
                 - cur_fname     -> 'Default Test'
         """
-        mkv = MKV(test_paths['default'], 0)
-        state = mkv.state
+        orig = pathlib.Path('tests/processing/0_analyze/Default Test.mkv')
+        cur_dir = pathlib.Path('tests/processing/0_analyze/')
+        out_dir = pathlib.Path('tests/processing/1_remux/')
+        state = self.mkv.state
 
-        assert state.orig_path.samefile(pathlib.Path(test_paths['default']))
-        assert state.orig_fname == 'Default Test.mkv'
-        assert state.orig_name == 'Default Test'
+        assert state.init_path == orig
         assert state.ext == '.mkv'
-        assert state.cur_dir.samefile(pathlib.Path(test_paths['default']).parent)
+        assert state.cur_dir == cur_dir
         assert state.cur_fname == 'Default Test.mkv'
+        assert state.out_dir == out_dir
+        assert state.out_fname == 'Default Test.mkv'
 
 
 # noinspection PyTypeChecker
@@ -93,7 +129,7 @@ class TestPaths:
 
     @pytest.fixture
     def mkv1(self):
-        return MKV('tests/processing/1_remux/Stage 1 Test Good.mkv', stages.STAGE_1)
+        return MKV('tests/processing/1_remux/Stage 1 Test Good.mkv', stages.STAGE_0)
 
     def test_init(self, mkv0):
         """ Do all of the instance attributes relating to paths get set correctly?
@@ -102,16 +138,14 @@ class TestPaths:
                 - 'tests/mkvs/stage_0/Stage 0 Test Good.mkv'
 
             Expected values:
-                - orig_path     -> 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
-                - orig_dir      -> 'tests/processing/0_analyze'
+                - init_path     -> 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
                 - cur_path      -> 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
                 - cur_dir       -> 'tests/processing/0_analyze'
                 - out_dir       -> 'tests/processing/1_remux'
         """
         mkv = mkv0
         state = mkv.state
-        assert state.orig_path.as_posix() == 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
-        assert state.orig_dir.as_posix() == 'tests/processing/0_analyze'
+        assert state.init_path.as_posix() == 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
         assert state.cur_path.as_posix() == 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
         assert state.cur_dir.as_posix() == 'tests/processing/0_analyze'
         assert state.out_dir.as_posix() == 'tests/processing/1_remux'
@@ -123,19 +157,17 @@ class TestPaths:
                 - 'tests/mkvs/stage_0/Stage 0 Test Good.mkv'
 
             Expected values:
-                - orig_path     -> 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
-                - orig_dir      -> 'tests/processing/0_analyze'
+                - init_path     -> 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
                 - cur_path      -> 'tests/processing/1_remux/Stage 0 Test Good.mkv'
                 - cur_dir       -> 'tests/processing/1_remux'
                 - out_dir       -> 'tests/processing/2_mix'
         """
         mkv = mkv0
-        mkv.state.sanitized_name = 'Stage 0 Test Good'
+        mkv.state.clean_name = 'Stage 0 Test Good'
         mkv.stage = stages.STAGE_1
         state = mkv.state
 
-        assert state.orig_path.as_posix() == 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
-        assert state.orig_dir.as_posix() == 'tests/processing/0_analyze'
+        assert state.init_path.as_posix() == 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
         assert state.cur_path.as_posix() == 'tests/processing/1_remux/Stage 0 Test Good.mkv'
         assert state.cur_dir.as_posix() == 'tests/processing/1_remux'
         assert state.out_dir.as_posix() == 'tests/processing/2_mix'
@@ -147,20 +179,17 @@ class TestPaths:
                 - 'tests/mkvs/stage_1/Stage 1 Test Good.mkv'
 
             Expected values:
-                - orig_path     -> 'tests/processing/1_remux/Stage 1 Test Good.mkv'
-                - orig_dir      -> 'tests/processing/1_remux'
+                - init_path     -> 'tests/processing/1_remux/Stage 1 Test Good.mkv'
                 - cur_path      -> 'tests/processing/2_mix/Stage 1 Test Good.mkv'
                 - cur_dir       -> 'tests/processing/2_mix'
                 - out_dir       -> 'tests/processing/3_review'
         """
         mkv = mkv1
-        mkv.state.sanitized_name = 'Stage 1 Test Good'
+        mkv.state.clean_name = 'Stage 1 Test Good'
+        mkv.stage = stages.STAGE_1
         mkv.stage = stages.STAGE_2
         state = mkv.state
-        assert state.orig_path.as_posix() == 'tests/processing/1_remux/Stage 1 Test Good.mkv'
-        assert state.orig_dir.as_posix() == 'tests/processing/1_remux'
+        assert state.init_path.as_posix() == 'tests/processing/1_remux/Stage 1 Test Good.mkv'
         assert state.cur_path.as_posix() == 'tests/processing/2_mix/Stage 1 Test Good.mkv'
         assert state.cur_dir.as_posix() == 'tests/processing/2_mix'
         assert state.out_dir.as_posix() == 'tests/processing/3_review'
-
-

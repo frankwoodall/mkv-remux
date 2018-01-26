@@ -1,3 +1,4 @@
+import shutil
 import pathlib
 from collections import namedtuple
 
@@ -10,8 +11,8 @@ class State:
     """ Helper class to track the state of the file through the entire process,
     specifically filename and directory changes.
 
-    Note: the difference between *_fname and *_name is that
-    *_fname includes the extension and *_name does not.
+    Note: The State object should never actually make any changes to itself (e.g. renaming a file).
+    All changes should be initiated by the controlling object or code.
 
 
     Instance Attributes
@@ -19,55 +20,86 @@ class State:
 
     stage       int                 Current stage of the pipeline
     orig_path   pathlib.Path        Path to the original file
-    orig_fname  str                 Original filename with extension
+    orig_dir    pathlib.Path        Path to the original directory
     orig_name   str                 Original filename
+    orig_fname  str                 Original filename with extension
     ext         str                 File extension
-    cur_path    pathlib.Path        Current path to the file
+    root        pathlib.Path        Processing root directory
+
+    cur_path    pathlib.Path        Path to the file's current location
+    cur_dir     pathlib.Path        Path to the file's current directory
     cur_fname   str                 Current filename
+
+    out_dir     pathlib.path        Path to where the file should go next
+
+    clean_name  str                 The name of the file with badchars removed
+    assoc_files dict                A dict of files associated with this file
+
+    # Maybe not needed
     next_path   pathlib.Path        Path to the next location the file should go
     next_fname  str                 Name the file should be after moving to next_path
-    assoc_files list                A list of files associated with this file
     """
 
-    def __init__(self, path: pathlib.Path, __stage: int):
+    def __init__(self, path: pathlib.Path, start_stage: int):
         """ Constructor for FileOps
 
         :param path: Path to the original file location
-        :param __stage: Current stage of processing for this mkv.
+        :param start_stage: Current stage of processing for this mkv.
         """
 
-        if not isinstance(__stage, int):
-            raise TypeError('stage must be an int -- got {} instead'.format(type(__stage)))
+        if not isinstance(start_stage, int):
+            raise TypeError('stage must be an int -- got {} instead'.format(type(start_stage)))
 
         if not isinstance(path, pathlib.Path):
             raise TypeError('path must be pathlib.Path -- got {} instead'.format(type(path)))
 
-        self._stage = __stage
+        #self._stage = start_stage
+        self._stage = None
 
         # Save the original path, dir, and filename as well as extension
-        self.orig_path = path
-        self.orig_dir = path.parent
-        self.orig_fname = path.name
-        self.orig_name = path.stem
+        #self.orig_path = path
+        #self.orig_dir = path.parent
+        #self.orig_fname = path.name
+        #self.orig_name = path.stem
+        self.init_path = path
 
-        self.ext = path.suffix
-        self._root = path.parent.parent
+        #self.ext = path.suffix
+        #self.root = path.parent.parent
+        self.ext = None
+        self.root = None
 
         # In Stages 1, 2, and 3, the 'current' values will differ
-        self._cur_path = path
-        self.cur_dir = path.parent
-        self.cur_fname = path.name
+        #self._cur_path = path
+        #self.cur_dir = path.parent
+        #self.cur_fname = path.name
+        self._cur_path = None
+        self.cur_dir = None
+        self.cur_fname = None
 
         # This should always point to the next stage's processing dir
-        self.out_dir = self._root.joinpath('1_remux')
+        #self.out_dir = self.root.joinpath('1_remux')
+        self._out_dir = None
+        self.out_fname = None
 
         # This is filename with windows bad characters removed
-        self.sanitized_name = None
+        self.clean_name = None
 
-        # ################################
-        # Not sure if I need these anymore
-        self.next_fname = None
         self.assoc_files = {}
+
+        # If you're wondering how most of the above attributes get set on init. It's here
+        self.stage = start_stage
+
+    @property
+    def out_dir(self):
+        return self._out_dir
+
+    @out_dir.setter
+    def out_dir(self, new_path):
+        self._out_dir = new_path
+        if self.clean_name:
+            self.out_fname = self.clean_name + self.ext
+        else:
+            self.out_fname = self.cur_fname
 
     @property
     def cur_path(self):
@@ -92,38 +124,38 @@ class State:
 
     @stage.setter
     def stage(self, new_stage):
-        """ Ensure paths and filenames are updated each stage transition
+        """ This is the workhorse of the state class.
+
+        Ensure paths and filenames are updated each stage transition
 
             In general, here is what needs updating for each transition:
                 - cur_path
                 - out_dir
         """
 
-        self._stage = new_stage
+        if new_stage == stages.STAGE_0:
+            # Need to document all of the attributes that won't ever change
+            self.ext = self.init_path.suffix
+            self.root = self.init_path.parent.parent
+            self.cur_path = self.init_path
+            self.out_dir = self.root.joinpath('1_remux')
 
-        if new_stage == 1:
-            # Update current path
-            self.cur_path = self._root.joinpath('1_remux', self.sanitized_name + self.ext)
-            self.out_dir = self._root.joinpath('2_mix')
+        elif new_stage == stages.STAGE_1:
+            self.cur_path = self.root.joinpath('1_remux', self.clean_name + self.ext)
+            self.out_dir = self.root.joinpath('2_mix')
 
-        elif new_stage == 2:
-            self.cur_path = self._root.joinpath('2_mix', self.sanitized_name + self.ext)
-            self.out_dir = self._root.joinpath('3_review')
+        elif new_stage == stages.STAGE_2:
+            self.cur_path = self.root.joinpath('2_mix', self.clean_name + self.ext)
+            self.out_dir = self.root.joinpath('3_review')
 
-        elif new_stage == 3:
-            self.cur_path = self._root.joinpath('3_review', self.sanitized_name + self.ext)
+            # Also update the path for 'stereo_mix'
+            if 'stereo_mix' in self.assoc_files:
+                mix_file = self.assoc_files['stereo_mix'].name
+                self.assoc_files['stereo_mix'] = self.root.joinpath('2_mix', mix_file)
+
+        elif new_stage == stages.STAGE_3:
+            self.cur_path = self.root.joinpath('3_review', self.clean_name + self.ext)
             self.out_dir = None
 
-    def __repr__(self):
-        r_str = '################ FILE OPS #################'
-        r_str += '\nStage:\t\t\t{}'.format(str(self._stage))
-        r_str += '\no_path:\t\t\t{}'.format(str(self.orig_path))
-        r_str += '\no_fname:\t\t{}'.format(str(self.orig_fname))
-        r_str += '\no_name:\t\t\t{}'.format(str(self.orig_name))
-        r_str += '\nf_ext:\t\t\t{}'.format(str(self.ext))
-        r_str += '\nc_path:\t\t\t{}'.format(str(self.cur_path))
-        r_str += '\nc_fname:\t\t{}'.format(str(self.cur_fname))
-        r_str += '\nn_path:\t\t\t{}'.format(str(self.out_dir))
-        r_str += '\nn_fname:\t\t{}'.format(str(self.next_fname))
-        r_str += '\na_files:\t\t{}'.format(str(self.assoc_files))
-        return r_str
+        # Once we know everything else worked, actually update the stage
+        self._stage = new_stage

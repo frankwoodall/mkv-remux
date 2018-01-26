@@ -1,15 +1,14 @@
-import json
 import os
-import pathlib
+import json
 import shutil
+import pathlib
 from subprocess import run, PIPE, DEVNULL
 from typing import Union
 
 import regex
 
 from mkvremux.mkvstream import MKVStream
-from mkvremux.state import State
-from mkvremux.state import stages
+from mkvremux.state import State, stages
 
 __author__ = 'Frank Woodall'
 __project__ = 'mkvremux'
@@ -56,8 +55,9 @@ class MKV:
     @media_title.setter
     def media_title(self, new_title):
         """ Make sure we update the state output files accordingly """
+        # TODO: Might not be using this anymore
         self._title = new_title
-        self.state.sanitized_name = new_title.replace(':', '')
+        self.state.clean_name = new_title.replace(':', '')
 
     @property
     def stage(self):
@@ -270,9 +270,10 @@ class MKV:
         def cmd_stage_0():
             """ Build the command for the stage_0 -> stage_1 transition """
             commands = []
-            out_file = self.state.out_dir.joinpath(self.state.sanitized_name + self.state.ext)
+            in_file = self.state.cur_dir.joinpath(self.state.cur_fname)
+            out_file = self.state.cur_dir.joinpath(self.state.out_fname)
 
-            cmd_list = ['ffmpeg', '-hide_banner', '-i', '{}'.format(str(self.state.cur_path))]
+            cmd_list = ['ffmpeg', '-hide_banner', '-i', str(in_file)]
 
             # Copy the chosen video stream. Should only be one at stage 0
             cmd_list += ['-map', '0:{}'.format(self.video.copy_indices[0])]
@@ -288,7 +289,6 @@ class MKV:
                     cmd_list += ['-metadata:s:s:{}'.format(count), '"title={}"'.format('English Forced')]
 
             # Include global metadata
-            # TODO: Might want to add a cmd line option to NOT do this?
             cmd_list += ['-map_metadata', '0']
 
             # Set the global media title
@@ -301,7 +301,7 @@ class MKV:
             # Copy without transcoding
             cmd_list += ['-c', 'copy']
 
-            cmd_list += ['{}'.format(str(out_file))]
+            cmd_list += [str(out_file)]
             commands.append(cmd_list)
 
             return commands
@@ -311,11 +311,12 @@ class MKV:
 
                 1st command: Create a raw stereo mix
                 2nd command: AAC encode it """
-            commands = []
-            stereo_mix = '{}.m4a'.format(self.state.sanitized_name)
-            out_file = self.state.out_dir.joinpath(stereo_mix)
 
-            cmd_list = ['ffmpeg', '-hide_banner', '-i', '{}'.format(str(self.state.cur_path))]
+            commands = []
+            in_file = self.state.cur_path
+            out_file = self.state.assoc_files['stereo_mix']
+
+            cmd_list = ['ffmpeg', '-hide_banner', '-i', str(in_file)]
 
             # Extract the audio stream
             cmd_list += ['-map', '0:a:0']
@@ -350,11 +351,12 @@ class MKV:
 
                 command: Mux in stereo mix and set all global and stream metadata """
             commands = []
+            in_file = self.state.cur_path
             stereo_mix = self.state.assoc_files['stereo_mix']
-            out_name = '{} ({}).mkv'.format(self.metadata['title'], self.metadata['year'])
-            out_file = self.state.out_dir.joinpath(out_name)
+            out_name = '{} ({}){}'.format(self.metadata['title'], self.metadata['year'], self.state.ext)
+            out_file = self.state.cur_dir.joinpath(out_name)
 
-            cmd_list = ['ffmpeg', '-hide_banner', '-i', str(self.state.cur_path)]
+            cmd_list = ['ffmpeg', '-hide_banner', '-i', str(in_file)]
 
             # Second input of stereo mix
             cmd_list += ['-i', str(stereo_mix)]
@@ -485,9 +487,25 @@ class MKV:
         if self.metadata is None:
             raise Exception('Movie missing from movie_details.json')
 
+    def rename_original(self):
+        """ Rename the original file to orig_<filename>.
+
+        This allows us to use the actual filename throughout the pipeline
+        without having to worry about name collisions and, in the event
+        of a processing failure, clearly indicates the original file."""
+
+        target = self.state.init_path.parent.joinpath('orig_' + self.state.init_path.name)
+        self.state.init_path.rename(target)
+        self.state.cur_path = target
+
     def pre_process(self):
         if self.stage == stages.STAGE_0:
+            self.rename_original()
             self._analyze()
+
+        if self.stage == stages.STAGE_1:
+            mix_path = self.state.cur_dir.joinpath(self.state.clean_name + '.m4a')
+            self.state.assoc_files['stereo_mix'] = mix_path
 
         if self.stage == stages.STAGE_2:
             self._set_metadata()
@@ -501,28 +519,33 @@ class MKV:
         """
 
         if self.stage == stages.STAGE_0:
-            # Move the orignal MKV into the archive
-            # TODO: Handle this better. SHouldn't be using _root
-            dst = self.state._root.joinpath('_archive')
-            self.state.cur_path.rename(dst.joinpath(self.state.cur_fname))
+            # Move original MKV to the archive
+            archive = self.state.root.joinpath('_archive')
+            shutil.move(str(self.state.cur_path), str(archive))
+
+            # Update current path to point to newly generated mkv
+            self.state.cur_path = self.state.cur_dir.joinpath(self.state.clean_name + self.state.ext)
+
+            # Move new mkv to next stage directory
+            shutil.move(str(self.state.cur_path), str(self.state.out_dir))
 
         elif self.stage == stages.STAGE_1:
-            # Need to move the file to the stage 2 directory
-            dst = self.state._root.joinpath('2_mix')
-            stereo_mix = self.state.cur_dir.joinpath(self.state.sanitized_name + '.m4a')
-            self.state.assoc_files['stereo_mix'] = stereo_mix
-            self.state.cur_path.rename(dst.joinpath(self.state.cur_fname))
-            stereo_mix.rename(dst.joinpath(stereo_mix.name))
+            # Move both files to next stage directory
+            shutil.move(str(self.state.cur_path), str(self.state.out_dir))
+            shutil.move(str(self.state.assoc_files['stereo_mix']), str(self.state.out_dir))
 
         elif self.stage == stages.STAGE_2:
-            self.state.assoc_files.pop('stereo_mix')
+            # Update current path to point to newly generated mkv
+            out_name = '{} ({}){}'.format(self.metadata['title'], self.metadata['year'], self.state.ext)
+            self.state.cur_path = self.state.cur_dir.joinpath(out_name)
+
+            # Move final product into next stage directory
+            shutil.move(str(self.state.cur_path), str(self.state.out_dir))
 
             # Clean up artifacts
-            artifacts = [
-                self.state.cur_dir.joinpath(self.state.sanitized_name + '.mkv'),
-                self.state.cur_dir.joinpath(self.state.sanitized_name + '.m4a')
-            ]
-
+            self.state.assoc_files.pop('stereo_mix')
+            artifacts = [self.state.cur_dir.joinpath(self.state.clean_name + '.mkv'),
+                         self.state.cur_dir.joinpath(self.state.clean_name + '.m4a')]
             for item in artifacts:
                 item.unlink()
 

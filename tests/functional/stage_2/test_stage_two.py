@@ -69,7 +69,7 @@ def get_mkv(request):
 
     # Note: during normal pipeline execution these values would have been
     # set in previous stages.
-    mkv.state.sanitized_name = 'Stage 2 Test Good'
+    mkv.state.clean_name = 'Stage 2 Test Good'
     mkv.state.assoc_files['stereo_mix'] = pathlib.Path('tests/processing/2_mix/Stage 2 Test Good.m4a')
     mkv.stage = stages.STAGE_2
 
@@ -149,7 +149,7 @@ class TestGoldenPath:
             '-metadata', 'imdb_id=tt0123456',
             '-metadata:s:a:1', 'language=eng', '-metadata:s:a:1', "title=Frank's Stereo Mix",
             '-metadata:s:a:1', 'encoder=qaac 2.63, CoreAudioToolbox 7.10.9.0, AAC-LC Encoder, TVBR q127, Quality 96',
-            '-disposition:a:1', 'none', 'tests\\processing\\3_review\\Stage 2 Test Good (1066).mkv'
+            '-disposition:a:1', 'none', 'tests\\processing\\2_mix\\Stage 2 Test Good (1066).mkv'
         ]
 
         assert len(self.mkv.cmd_list) == 1
@@ -165,9 +165,9 @@ class TestGoldenPath:
                 - 2_mix/Stage 2 Test Good (1066).mkv
         """
 
-        final_mkv = self.mkv.state._root.joinpath('3_review', 'Stage 2 Test Good (1066).mkv')
+        out = pathlib.Path('tests/processing/2_mix/Stage 2 Test Good (1066).mkv')
         self.mkv.run_commands()
-        assert final_mkv.exists()
+        assert out.exists()
 
     def test_post_proc(self):
         """ Post-processing for stage_0

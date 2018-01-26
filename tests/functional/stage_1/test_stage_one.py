@@ -58,13 +58,14 @@ def create_environment():
 def get_mkv(request):
     """ Some sort of black magic fixture to provide an object to the entire test class """
     mkv_path = 'tests/processing/1_remux/Stage 1 Test Good.mkv'
-    mkv = MKV(mkv_path, stages.STAGE_1)
+    mkv = MKV(mkv_path, stages.STAGE_0)
 
     if request.cls is not None:
         request.cls.mkv = mkv
 
     # Set the sanitized name, since that will be used
-    mkv.state.sanitized_name = 'Stage 1 Test Good'
+    mkv.state.clean_name = 'Stage 1 Test Good'
+    mkv.stage = stages.STAGE_1
 
     yield mkv
 
@@ -99,6 +100,9 @@ class TestGoldenPath:
         """ Note: Currently there is no pre-processing for stage_1
             but I wanted to put this test in here to remind myself
             that I didn't forget to write it. """
+
+        self.mkv.pre_process()
+
         pass
 
     def test_set_command(self):
@@ -138,9 +142,9 @@ class TestGoldenPath:
             Expected Outputs:
                 - 1_remux/Stage 1 Test Good.m4a
         """
-        stereo_mix = self.mkv.state._root.joinpath('1_remux', 'Stage 1 Test Good.m4a')
+        out = pathlib.Path('tests/processing/1_remux/Stage 1 Test Good.m4a')
         self.mkv.run_commands()
-        assert stereo_mix.exists()
+        assert out.exists()
 
     def test_post_proc(self):
         """ Post-processing for stage_0
@@ -149,11 +153,10 @@ class TestGoldenPath:
                 - Stage 1 MKV and Stereo mix file will be moved to 2_mix
         """
         # Expected locations after post processing
-        orig = self.mkv.state._root.joinpath('2_mix', self.mkv.state.sanitized_name + '.mkv')
-        stereo = self.mkv.state._root.joinpath('2_mix', self.mkv.state.sanitized_name + '.m4a')
+        out_0 = pathlib.Path('tests/processing/2_mix/Stage 1 Test Good.mkv')
+        out_1 = pathlib.Path('tests/processing/2_mix/Stage 1 Test Good.m4a')
 
         self.mkv.post_process()
-        assert orig.exists()
-        assert stereo.exists()
+        assert out_0.exists()
+        assert out_1.exists()
         assert self.mkv.state.assoc_files['stereo_mix']
-        print(self.mkv.state.assoc_files['stereo_mix'])

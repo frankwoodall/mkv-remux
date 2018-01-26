@@ -38,14 +38,14 @@ class TestStageProperty:
     def test_stage_set(self):
         """ Does the stage setter work? """
         mkv = MKV(test_paths['default'], stages.STAGE_0)
-        mkv.state.sanitized_name = 'Default Test'
+        mkv.state.clean_name = 'Default Test'
         mkv.stage = stages.STAGE_1
         assert mkv.stage == 1
 
     def test_stage_set_loc(self):
         """ Does the stage setter properly set location's stage? """
         mkv = MKV(test_paths['default'], stages.STAGE_0)
-        mkv.state.sanitized_name = 'Default Test'
+        mkv.state.clean_name = 'Default Test'
         assert mkv.state.stage == 0
         mkv.stage = stages.STAGE_1
         assert mkv.state.stage == 1
@@ -59,11 +59,11 @@ class TestMediaTitleProperty:
         mkv = MKV(test_paths['default'], stages.STAGE_0)
         mkv._analyze()
         assert mkv.media_title == 'Default Test'
-        assert mkv.state.sanitized_name == 'Default Test'
+        assert mkv.state.clean_name == 'Default Test'
 
     def test_colon_in_title(self):
         """ Do we appropriately sanitize colons from file names? """
         mkv = MKV(test_paths['default'], stages.STAGE_0)
         mkv.media_title = 'Title 2: Revenge of the Colon'
         assert mkv.media_title == 'Title 2: Revenge of the Colon'
-        assert mkv.state.sanitized_name == 'Title 2 Revenge of the Colon'
+        assert mkv.state.clean_name == 'Title 2 Revenge of the Colon'

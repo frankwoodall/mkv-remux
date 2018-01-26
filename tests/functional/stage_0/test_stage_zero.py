@@ -58,8 +58,6 @@ def get_mkv(request):
     """ Some sort of black magic fixture to provide an object to the entire test class """
     mkv_path = 'tests/processing/0_analyze/Stage 0 Test Good.mkv'
     mkv = MKV(mkv_path, stages.STAGE_0)
-    # noinspection PyProtectedMember
-    mkv._analyze()
 
     if request.cls is not None:
         request.cls.mkv = mkv
@@ -102,7 +100,8 @@ class TestGoldenPath:
         """ Pre-processing for stage_0
 
             Expected Behavior:
-                - MKV analyzed without error or user input
+                - Original mkv is renamed to orig_<filename>
+                - mkv file analyzed without error or user input
                 - All attributes necessary for cmd exec step are collected
 
             Expected values:
@@ -112,14 +111,20 @@ class TestGoldenPath:
                 - audio.copy_indices    -> [1]
                 - subs.copy_count       -> 0
                 - intervene             -> False
-        """
 
+            Expected outputs:
+                - tests/processing/0_analyze/orig_Stage 0 Test Good.mkv
+                - tests/processing/0_analyze/Stage 0 Test Good.mkv
+        """
+        self.mkv.pre_process()
+        out = pathlib.Path('tests/processing/0_analyze/orig_Stage 0 Test Good.mkv')
         assert self.mkv.video.copy_count == 1
         assert self.mkv.video.copy_indices == [0]
         assert self.mkv.audio.copy_count == 1
         assert self.mkv.audio.copy_indices == [1]
         assert self.mkv.subs.copy_count == 0
         assert not self.mkv.intervene
+        assert out.exists()
 
     def test_set_command(self):
         """ Is the generated command correct?
@@ -135,11 +140,11 @@ class TestGoldenPath:
         self.mkv._set_command()
 
         expected = [
-            'ffmpeg', '-hide_banner', '-i', 'tests\\processing\\0_analyze\\Stage 0 Test Good.mkv',
+            'ffmpeg', '-hide_banner', '-i', 'tests\\processing\\0_analyze\\orig_Stage 0 Test Good.mkv',
             '-map', '0:0', '-map', '0:1', '-map_metadata', '0', '-metadata',
             'title=Stage 0 Test Good', '-metadata:s:v:0', 'title=h264 Remux',
             '-metadata:s:a:0', 'title=DTS-HD MA 7.1', '-c', 'copy',
-            'tests\\processing\\1_remux\\Stage 0 Test Good.mkv'
+            'tests\\processing\\0_analyze\\Stage 0 Test Good.mkv'
         ]
 
         assert len(self.mkv.cmd_list) == 1
@@ -152,7 +157,7 @@ class TestGoldenPath:
                 - Stage 1 MKV generated successfully
         """
         # This is where the output file should be
-        out = self.mkv.state.out_dir.joinpath(self.mkv.state.sanitized_name + '.mkv')
+        out = pathlib.Path('tests/processing/0_analyze/Stage 0 Test Good.mkv')
         self.mkv.run_commands()
         assert out.exists()
 
@@ -162,7 +167,8 @@ class TestGoldenPath:
             Expected Behavior:
                 - Original MKV will be moved to _archive
         """
-        # This is where the archived original should be
-        orig = self.mkv.state._root.joinpath('_archive', self.mkv.state.orig_fname)
+        archive = pathlib.Path('tests/processing/_archive/orig_Stage 0 Test Good.mkv')
+        out = pathlib.Path('tests/processing/1_remux/Stage 0 Test Good.mkv')
         self.mkv.post_process()
-        assert orig.exists()
+        assert archive.exists()
+        assert out.exists()
