@@ -123,7 +123,7 @@ class TestGoldenPath:
         assert self.mkv.audio.copy_count == 1
         assert self.mkv.audio.copy_indices == [1]
         assert self.mkv.subs.copy_count == 0
-        assert not self.mkv.intervene
+        assert not self.mkv.intervene['needed']
         assert out.exists()
 
     def test_set_command(self):

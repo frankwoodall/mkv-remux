@@ -43,7 +43,15 @@ class MKV:
         self.can_transition = True
 
         # Gets set if we need user input for some reason. Try real hard to avoid.
-        self.intervene = False
+        self.intervene = {
+            'needed': False,
+            'reason': {
+                'no_title': False,
+                'audio_stream': False,
+                'video_stream': False,
+                'subtitle_stream': False
+            }
+        }
 
         # Metadata
         self.metadata = None
@@ -176,10 +184,10 @@ class MKV:
                 raise RuntimeError('No audio streams found')
 
             elif self.audio.stream_count > 1:
-                self.audio.needs_user = True
-                self.intervene = True
+                self.intervene['needed'] = True
+                self.intervene['reason']['audio_stream'] = True
 
-            if not self.audio.needs_user:
+            else:
                 index = self.audio.copy_streams[0].get('index')
                 self.audio.copy_indices.append(index)
                 self.audio.copy_count = 1
@@ -211,9 +219,7 @@ class MKV:
                         self.subs.copy_count += 1
 
         def set_title():
-            """ Attempt to set output filename based on mkv global tag 'title'.
-
-            :raises RunTimeError: If the source mkv has no global title """
+            """ Attempt to set output filename based on mkv global tag 'title'. """
 
             f = str(self.state.cur_path)
             cmd = ['ffprobe', '-show_format', '-print_format', 'json', f]
@@ -221,16 +227,42 @@ class MKV:
             ret = run(cmd, stdout=PIPE, stderr=DEVNULL)
 
             if ret.returncode != 0:
-                raise RuntimeError('Problem Extracting Global Format Data')
+                raise RuntimeError('Problem Extracting Global Format Data', ret)
 
             format_data = json.loads(ret.stdout)
             tags = format_data['format']['tags']
 
             film_title = tags.get('title')
-            if film_title is not None:
+            if film_title and len(film_title) > 0:
                 self.media_title = film_title
             else:
-                raise RuntimeError('MKV missing global title')
+                """ So at this point, we know the title is either blank, or not there at all.
+                
+                There are a few ways we can handle this:
+                    1. Attempt to extract the title from the filename.
+                     
+                    This could work, but gets really messy really quickly. The problem with this approach 
+                    is that there are an infinite number of naming conventions that would need to be 
+                    handled as well as edge and corner cases that would break things. 
+                    
+                    Consider the following cases:
+                        - lkjasdf8j23lfdkj23lkj23l2k3js908djlklj.mkv
+                        - Bladerunner.2049.2017.1080p.mkv
+                        
+                    These would be tricky to say the least to figure out what's a name, what's a year, etc.
+                    
+                    2. Flag for user intervention and keep going.
+                    
+                    As a general rule I try really, really hard to avoid user input. The point of this is
+                    supposed to be automation, after all. I guess at some point though the tradeoff between
+                    "Hey, what is the title supposed to be?" and all of the messy code I would have to 
+                    write to try to figure out the title from the filename (and still probably fail a lot)
+                    isn't worth it.
+                    
+                    TL;DR - I'm not smart enough to implement this, so I'm just going to ask for the answer.                 
+                """
+                self.intervene['needed'] = True
+                self.intervene['reason']['no_title'] = True
 
         def choose_preferred_streams():
             """ Choose the appropriate streams to copy from the original mkv.
@@ -405,52 +437,17 @@ class MKV:
             for cmd in cmd_stage_2():
                 self.cmd_list.append(cmd)
 
-    def intervention(self, handle_video=None, handle_audio=None, handle_subs=None):
+    def intervention(self, reason, handler):
+        """ Perform user intervention using supplied handler function """
 
-        """ Sometimes there are problems that aren't fatal but can't be decided deterministically. In that case
-        we need a user to look at whatever the issue is and de-conflict. I use a flag 'intervene' in the MKV
-        object to signify this state.
+        if handler(self):
+            self.intervene['reason'][reason] = False
 
-        I intentionally did not implement this de-confliction in the MKV class because people will want to handle
-        this case in many different ways. Offloading the handling like this isn't my preferred way of doing things
-        but allows everyone to get the behavior that they want.
-
-        All we know at this point is that the intervene flag is set but not which stream type needs help -- so we need
-        to check them all.
-
-        Note: Supplied function should have the following signature:
-            - funcname(mkv: MKV) -> bool
-
-            It should take an mkv object as it's only argument and return True on successful de-confliction
-            or False. A function which returns False will cause that MKV to be quarantined.
-
-        :param handle_video: A function to handle de-confliction of video streams
-        :param handle_audio: A function to handle de-confliction of audio streams
-        :param handle_subs: A function to handle de-confliction of subtitle streams
-        """
-
-        if self.video.needs_user:
-            if handle_video:
-                handle_video(self)
-                self.video.needs_user = False
-            else:
-                raise NotImplementedError
-
-        if self.audio.needs_user:
-            if handle_audio:
-                handle_audio(self)
-                self.audio.needs_user = False
-            else:
-                raise NotImplementedError
-
-        if self.subs.needs_user:
-            if handle_subs:
-                handle_subs(self)
-                self.subs.needs_user = False
-            else:
-                raise NotImplementedError
-
-        self.intervene = False
+        # Note: I know this looks kind of janky.
+        # In this case there was no title set during analysis and as a result, the state is using the original
+        # filename as the output file. We _have_ a title now, so we have to force the update of the output filename
+        if reason == 'no_title':
+            self.state.out_dir = self.state.out_dir
 
     def _set_metadata(self):
         r_template = '({}){{e<3}}'

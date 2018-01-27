@@ -72,7 +72,7 @@ class TestGoldenPath:
 
         self.mkv.pre_process()
         orig = pathlib.Path('tests/processing/0_analyze/orig_Stage 0 Test Good.mkv')
-        assert not self.mkv.intervene
+        assert not self.mkv.intervene['needed']
         assert self.mkv.can_transition
         assert orig.exists()
 
@@ -106,7 +106,7 @@ class TestGoldenPath:
                 - 'tests/processing/2_mix/Stage 0 Test Good.m4a'
         """
         self.mkv.pre_process()
-        assert not self.mkv.intervene
+        assert not self.mkv.intervene['needed']
         assert self.mkv.can_transition
 
         self.mkv.run_commands()
@@ -155,7 +155,7 @@ class TestGoldenPath:
         monkeypatch.setattr(MKV, '_set_metadata', _dork_metadata)
         assert self.mkv.metadata is None
         self.mkv.pre_process()
-        assert not self.mkv.intervene
+        assert not self.mkv.intervene['needed']
         assert self.mkv.can_transition
         assert len(self.mkv.metadata) == 6
         assert self.mkv.metadata['title'] == 'Full Pipeline Test Good'

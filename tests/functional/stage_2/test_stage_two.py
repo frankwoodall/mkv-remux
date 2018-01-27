@@ -1,6 +1,6 @@
 import pathlib
 import shutil
-
+import time
 import pytest
 
 from mkvremux import MKV
@@ -45,7 +45,6 @@ def clean_artifacts():
         pathlib.Path('tests/processing/2_mix'),
         pathlib.Path('tests/processing/3_review')
     ]
-
     for p in paths:
         for item in p.iterdir():
             item.unlink()

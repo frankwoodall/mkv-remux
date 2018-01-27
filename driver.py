@@ -12,6 +12,8 @@ def select_audio(mkv):
     :param MKV mkv: The offending mkv object
     """
 
+    # TODO: Clean up
+
     print('Somehow made it to select_audio')
 
     valid_indices = []  # We'll use this in a bit to validate user input
@@ -78,6 +80,41 @@ def select_audio(mkv):
         mkv.audio.title = mkv.audio.copy_streams[0].get('codec_name')
         mkv.audio.title += ' ' + mkv.audio.copy_streams[0].get('channel_layout')
 
+    # Return true if we succeeded
+    return True
+
+
+def select_title(mkv):
+    accepted = False
+    print('   [ERROR] Global title blank or missing!')
+    choice = input('    [*] Enter the title of this film: ')
+
+    while not accepted:
+        print('     [*] You have entered: "{}"'.format(choice))
+        ans = input('     [*] Is this correct? [YES/no] ')
+        if ans.lower() in ['', 'y', 'yes']:
+            accepted = True
+        else:
+            choice = input('   [*] Enter the title of this film: ')
+
+    mkv.media_title = choice
+    return True
+
+
+def intervene(mkv):
+    """ Determine the reason an intervention is needed """
+
+    if mkv.intervene['reason']['no_title']:
+        mkv.intervention('no_title', select_title)
+
+    elif mkv.intervene['reason']['audio_stream']:
+        mkv.intervention('audio_stream', select_audio)
+
+    elif mkv.intervene['reason']['video_stream']:
+        pass
+    elif mkv.intervene['reason']['subtitle_stream']:
+        pass
+
 
 def main_loop():
     """ Process each mkv. Processing has 3 distinct steps:
@@ -104,10 +141,10 @@ def main_loop():
     """
 
     # DIRTY HACK FOR TESTING
-    #import os
-    #import shutil
+    import os
+    import shutil
     #shutil.copy('tests/mkvs/audio/Multiple Audio Streams.mkv', 'tests/processing/0_analyze')
-    #os.chdir('tests/processing')
+    os.chdir('tests/processing')
 
     stage = stages.STAGE_0
     mkv_list = utils.get_mkvs(stage)
@@ -123,11 +160,12 @@ def main_loop():
             try:
                 mkv.pre_process()
 
-                if mkv.intervene:
-                    mkv.intervention(None, select_audio, None)
+                if mkv.intervene['needed']:
+                    intervene(mkv)
 
             except RuntimeError as exc:
                 print('Got a runtimeerror in preproc')
+                print(exc)
 
                 # These are fatal
                 # TODO: This is gross

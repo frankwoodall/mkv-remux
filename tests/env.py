@@ -87,6 +87,12 @@ test_paths = {
         'good_m4a': 'tests/mkvs/stage_2/Stage 2 Test Good.m4a'
     },
 
+    # ####################### ERROR TEST CONTAINERS #######################
+    'errors': {
+        'blank_global_title': 'tests/mkvs/errors/Blank Global Title.mkv',
+        'no_global_title': 'tests/mkvs/errors/No Global Title.mkv'
+    },
+
     # Container has 1 V, 1 A, 1 S, but the order is Subs, Audio, Video [SAV]
     'weird_order_SAV': 'tests/mkvs/Weird Stream Order 01.mkv',
 
